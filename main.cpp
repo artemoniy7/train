@@ -16,6 +16,8 @@
 #include <filesystem>
 #include <map>
 #include <cstring>
+#include <functional>
+#include <cctype>
 
 namespace fs = std::filesystem;
 
@@ -51,7 +53,7 @@ struct Mesh {
     std::vector<glm::vec2> texCoords;
     std::vector<unsigned int> indices;
     std::vector<Texture> textures;
-    
+
     unsigned int VAO, VBO, EBO, NBO, TBO;
 
     void setup() {
@@ -101,7 +103,7 @@ struct Mesh {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, hasDiffuseTexture ? diffuseTexture->id : 0);
         glUniform1i(glGetUniformLocation(shaderProgram, "texture_diffuse1"), 0);
-        
+
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
@@ -124,6 +126,11 @@ struct Model {
     std::string name;
     std::vector<Mesh> meshes;
     glm::mat4 transform = glm::mat4(1.0f);
+    // Transform of the mesh node in the source glTF.  The track mesh is
+    // offset from its start/end helper nodes, so dropping this transform
+    // makes the visible rail disagree with the route.
+    glm::mat4 sourceTransform = glm::mat4(1.0f);
+    std::map<std::string, glm::vec3> markers;
     glm::vec3 position = glm::vec3(0.0f);
     float scale = 0.5f;
 
@@ -141,6 +148,14 @@ struct Model {
 };
 
 std::vector<Model> trains;
+
+struct TrackSegment {
+    glm::mat4 transform;
+    glm::vec3 start;
+    glm::vec3 end;
+};
+
+std::vector<TrackSegment> trackSegments;
 
 // Обработчики GLFW
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -262,14 +277,14 @@ unsigned int loadEmbeddedTexture(const aiTexture* embeddedTexture) {
 }
 
 // Функция загрузки текстур из материала
-std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName, 
+std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName,
                                           const aiScene* scene, const std::string& directory) {
     std::vector<Texture> textures;
-    
+
     for (unsigned int i = 0; i < mat->GetTextureCount(type); i++) {
         aiString str;
         mat->GetTexture(type, i, &str);
-        
+
         // Проверяем, не загружена ли уже эта текстура
         bool skip = false;
         for (unsigned int j = 0; j < textures.size(); j++) {
@@ -278,16 +293,16 @@ std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, s
                 break;
             }
         }
-        
+
         if (!skip) {
             Texture texture;
             texture.type = typeName;
             texture.path = str.C_Str();
-            
+
             // Проверяем, встроенная ли текстура
             if (str.C_Str()[0] == '*') {
                 int textureIndex = std::stoi(str.C_Str() + 1);
-                
+
                 if (scene->mTextures && scene->mNumTextures > textureIndex) {
                     const aiTexture* embeddedTexture = scene->mTextures[textureIndex];
                     unsigned int id = loadEmbeddedTexture(embeddedTexture);
@@ -300,7 +315,7 @@ std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, s
             }
         }
     }
-    
+
     return textures;
 }
 
@@ -330,7 +345,7 @@ Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& director
     // Материалы и текстуры
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-        
+
         // glTF stores Blender's Principled BSDF colour map in the PBR
         // base-colour slot, not in Assimp's legacy diffuse slot.  Reading the
         // base-colour slot first keeps every primitive paired with the texture
@@ -343,10 +358,10 @@ Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& director
                 material, aiTextureType_DIFFUSE, "diffuse", scene, directory);
         }
         result.textures.insert(result.textures.end(), baseColorMaps.begin(), baseColorMaps.end());
-        
+
         std::vector<Texture> specularMaps = loadMaterialTextures(material, aiTextureType_SPECULAR, "specular", scene, directory);
         result.textures.insert(result.textures.end(), specularMaps.begin(), specularMaps.end());
-        
+
         std::vector<Texture> normalMaps = loadMaterialTextures(material, aiTextureType_NORMALS, "normal", scene, directory);
         result.textures.insert(result.textures.end(), normalMaps.begin(), normalMaps.end());
     }
@@ -361,8 +376,8 @@ Model loadModel(const std::string& path, const std::string& name) {
     model.name = name;
 
     Assimp::Importer importer;
-    const aiScene* scene = importer.ReadFile(path, 
-        aiProcess_Triangulate | 
+    const aiScene* scene = importer.ReadFile(path,
+        aiProcess_Triangulate |
         aiProcess_GenSmoothNormals |
         // Assimp converts the glTF texture-coordinate convention on import;
         // flip it back for OpenGL's texture upload convention.
@@ -376,11 +391,41 @@ Model loadModel(const std::string& path, const std::string& name) {
 
     std::string directory = fs::path(path).parent_path().string();
 
+    auto toGlm = [](const aiMatrix4x4& matrix) {
+        return glm::mat4(
+            matrix.a1, matrix.b1, matrix.c1, matrix.d1,
+            matrix.a2, matrix.b2, matrix.c2, matrix.d2,
+            matrix.a3, matrix.b3, matrix.c3, matrix.d3,
+            matrix.a4, matrix.b4, matrix.c4, matrix.d4);
+    };
+    bool foundMeshNode = false;
+    std::function<void(const aiNode*, const glm::mat4&)> readNodes;
+    readNodes = [&](const aiNode* node, const glm::mat4& parentTransform) {
+        const glm::mat4 nodeTransform = parentTransform * toGlm(node->mTransformation);
+        if (node->mNumMeshes > 0 && !foundMeshNode) {
+            model.sourceTransform = nodeTransform;
+            foundMeshNode = true;
+        }
+
+        std::string markerName = node->mName.C_Str();
+        std::transform(markerName.begin(), markerName.end(), markerName.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (markerName == "track_start" || markerName == "track_end" ||
+            markerName == "pivot_front" || markerName == "pivot_back") {
+            model.markers[markerName] = glm::vec3(nodeTransform[3]);
+        }
+
+        for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+            readNodes(node->mChildren[i], nodeTransform);
+        }
+    };
+    readNodes(scene->mRootNode, glm::mat4(1.0f));
+
     for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
         model.meshes.push_back(processMesh(scene->mMeshes[i], scene, directory));
     }
 
-    std::cout << "Loaded train: " << name << " (" << model.meshes.size() << " meshes)" << std::endl;
+    std::cout << "Loaded model: " << name << " (" << model.meshes.size() << " meshes)" << std::endl;
     return model;
 }
 
@@ -518,10 +563,10 @@ void initPlane() {
     if (planeInitialized) return;
 
     float vertices[] = {
-        -15.0f, 0.0f, -15.0f,   0.0f, 0.0f,
-         15.0f, 0.0f, -15.0f,   1.0f, 0.0f,
-         15.0f, 0.0f,  15.0f,   1.0f, 1.0f,
-        -15.0f, 0.0f,  15.0f,   0.0f, 1.0f
+        -30.0f, 0.0f, -30.0f,   0.0f, 0.0f,
+         30.0f, 0.0f, -30.0f,   1.0f, 0.0f,
+         30.0f, 0.0f,  30.0f,   1.0f, 1.0f,
+        -30.0f, 0.0f,  30.0f,   0.0f, 1.0f
     };
 
     unsigned int indices[] = {0, 1, 2, 0, 2, 3};
@@ -564,7 +609,7 @@ std::string findModelPath() {
                     std::string ext = fileEntry.path().extension().string();
                     std::string extLower = ext;
                     for (char& c : extLower) c = std::tolower(c);
-                    
+
                     if (extLower == ".glb" || extLower == ".gltf" || extLower == ".obj") {
                         return fileEntry.path().string();
                     }
@@ -610,27 +655,60 @@ int main() {
     // Инициализируем плоскость
     initPlane();
 
+    // Blender assets use two source units per metre.  A 5 m rail piece has
+    // endpoints 10 source units apart, therefore the common scale below
+    // produces a 50 m route from ten connected pieces.
+    constexpr int trackPieceCount = 10;
+    constexpr float trackPieceLength = 5.0f;
+    constexpr float assetScale = 0.5f;
+    Model rail = loadModel("rails/5m_track.glb", "5m_track");
+    if (rail.meshes.empty() || rail.markers.count("track_start") == 0 ||
+        rail.markers.count("track_end") == 0) {
+        std::cout << "Rail model or its track_start/track_end markers were not found" << std::endl;
+    } else {
+        const glm::vec3 firstPieceCenter(0.0f, 0.0f,
+            -0.5f * trackPieceLength * (trackPieceCount - 1));
+        for (int i = 0; i < trackPieceCount; ++i) {
+            const glm::vec3 center = firstPieceCenter + glm::vec3(0.0f, 0.0f, i * trackPieceLength);
+            const glm::mat4 instanceTransform = glm::scale(
+                glm::translate(glm::mat4(1.0f), center), glm::vec3(assetScale));
+            trackSegments.push_back({
+                instanceTransform,
+                glm::vec3(instanceTransform * glm::vec4(rail.markers["track_start"], 1.0f)),
+                glm::vec3(instanceTransform * glm::vec4(rail.markers["track_end"], 1.0f))
+            });
+        }
+        std::cout << "Built test track: " << trackSegments.size() * trackPieceLength
+                  << " m (" << trackSegments.size() << " connected pieces)" << std::endl;
+    }
+
     // Загружаем модель
     std::string modelPath = findModelPath();
-    
+
     if (!modelPath.empty()) {
         std::string trainName = fs::path(modelPath).parent_path().filename().string();
         std::cout << "Loading model from: " << modelPath << std::endl;
         Model train = loadModel(modelPath, trainName);
-        
+
         if (!train.meshes.empty()) {
-            train.position = glm::vec3(0.0f, 0.0f, 0.0f);
+            // Put the locomotive onto the route by matching its Pivot_back to
+            // the straight line defined by the rail endpoint markers.
+            const glm::vec3 pivotBack = train.markers.count("pivot_back")
+                ? train.markers["pivot_back"] : glm::vec3(0.0f);
+            const float lineHeight = trackSegments.empty() ? 0.0f : trackSegments.front().start.y;
+            train.position = glm::vec3(0.0f, lineHeight - assetScale * pivotBack.y, 0.0f);
             train.transform = glm::translate(glm::mat4(1.0f), train.position);
-            train.scale = 0.5f;
+            train.scale = assetScale;
             train.transform = glm::scale(train.transform, glm::vec3(train.scale));
+            train.transform *= train.sourceTransform;
             trains.push_back(train);
-            std::cout << "✓ Successfully loaded textured train: " << trainName << std::endl;
-            
+            std::cout << "✓ Successfully loaded textured train on the track: " << trainName << std::endl;
+
             // Выводим информацию о текстурах
             for (size_t i = 0; i < train.meshes.size(); i++) {
                 std::cout << "  Mesh " << i << " has " << train.meshes[i].textures.size() << " textures" << std::endl;
                 for (size_t j = 0; j < train.meshes[i].textures.size(); j++) {
-                    std::cout << "    Texture " << j << ": " << train.meshes[i].textures[j].type 
+                    std::cout << "    Texture " << j << ": " << train.meshes[i].textures[j].type
                               << " ID=" << train.meshes[i].textures[j].id << std::endl;
                 }
             }
@@ -693,9 +771,17 @@ int main() {
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
+        // === РИСУЕМ ТЕСТОВЫЙ ПУТЬ: 10 СЕКЦИЙ ПО 5 МЕТРОВ ===
+        for (const auto& segment : trackSegments) {
+            const glm::mat4 railTransform = segment.transform * rail.sourceTransform;
+            glUniformMatrix4fv(glGetUniformLocation(modelShader, "model"), 1, GL_FALSE,
+                               glm::value_ptr(railTransform));
+            rail.draw(modelShader);
+        }
+
         for (auto& train : trains) {
             glUniformMatrix4fv(glGetUniformLocation(modelShader, "model"), 1, GL_FALSE, glm::value_ptr(train.transform));
-            
+
             // Each mesh selects its own material texture in Mesh::draw().
             train.draw(modelShader);
         }
@@ -708,6 +794,7 @@ int main() {
     for (auto& train : trains) {
         train.cleanup();
     }
+    rail.cleanup();
     glDeleteVertexArrays(1, &planeVAO);
     glDeleteBuffers(1, &planeVBO);
     glDeleteBuffers(1, &planeEBO);
