@@ -331,8 +331,18 @@ Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& director
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
         
-        std::vector<Texture> diffuseMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE, "diffuse", scene, directory);
-        result.textures.insert(result.textures.end(), diffuseMaps.begin(), diffuseMaps.end());
+        // glTF stores Blender's Principled BSDF colour map in the PBR
+        // base-colour slot, not in Assimp's legacy diffuse slot.  Reading the
+        // base-colour slot first keeps every primitive paired with the texture
+        // assigned to its material in Blender.  Keep the diffuse lookup as a
+        // fallback for OBJ and older importers.
+        std::vector<Texture> baseColorMaps = loadMaterialTextures(
+            material, aiTextureType_BASE_COLOR, "diffuse", scene, directory);
+        if (baseColorMaps.empty()) {
+            baseColorMaps = loadMaterialTextures(
+                material, aiTextureType_DIFFUSE, "diffuse", scene, directory);
+        }
+        result.textures.insert(result.textures.end(), baseColorMaps.begin(), baseColorMaps.end());
         
         std::vector<Texture> specularMaps = loadMaterialTextures(material, aiTextureType_SPECULAR, "specular", scene, directory);
         result.textures.insert(result.textures.end(), specularMaps.begin(), specularMaps.end());
@@ -354,6 +364,9 @@ Model loadModel(const std::string& path, const std::string& name) {
     const aiScene* scene = importer.ReadFile(path, 
         aiProcess_Triangulate | 
         aiProcess_GenSmoothNormals |
+        // Assimp converts the glTF texture-coordinate convention on import;
+        // flip it back for OpenGL's texture upload convention.
+        aiProcess_FlipUVs |
         aiProcess_CalcTangentSpace);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
