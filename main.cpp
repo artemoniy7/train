@@ -10,6 +10,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 #include <iostream>
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <filesystem>
@@ -88,18 +89,18 @@ struct Mesh {
     }
 
     void draw(unsigned int shaderProgram) {
-        // Привязываем текстуры и передаем в шейдер
-        for (unsigned int i = 0; i < textures.size(); i++) {
-            glActiveTexture(GL_TEXTURE0 + i);
-            glBindTexture(GL_TEXTURE_2D, textures[i].id);
-            
-            // Передаем номер текстурного юнита в шейдер
-            std::string uniformName = "texture_" + textures[i].type;
-            if (i > 0) {
-                uniformName += std::to_string(i + 1);
-            }
-            glUniform1i(glGetUniformLocation(shaderProgram, uniformName.c_str()), i);
-        }
+        // The GLB base-colour map is the diffuse texture.  Always bind it to
+        // the sampler the shader actually uses, rather than relying on the
+        // OpenGL default texture unit left by a previous mesh.
+        const auto diffuseTexture = std::find_if(
+            textures.begin(), textures.end(),
+            [](const Texture& texture) { return texture.type == "diffuse"; });
+        const bool hasDiffuseTexture = diffuseTexture != textures.end();
+        glUniform1i(glGetUniformLocation(shaderProgram, "hasTexture"), hasDiffuseTexture);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, hasDiffuseTexture ? diffuseTexture->id : 0);
+        glUniform1i(glGetUniformLocation(shaderProgram, "texture_diffuse1"), 0);
         
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
@@ -192,6 +193,9 @@ unsigned int loadTextureFromMemory(const unsigned char* data, int width, int hei
     else if (channels == 4)
         format = GL_RGBA;
 
+    // PNG/JPEG rows are tightly packed.  Without this, RGB images whose row
+    // width is not a multiple of four get corrupted when uploaded to OpenGL.
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -237,6 +241,7 @@ unsigned int loadEmbeddedTexture(const aiTexture* embeddedTexture) {
         else if (channels == 4)
             format = GL_RGBA;
 
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -348,8 +353,7 @@ Model loadModel(const std::string& path, const std::string& name) {
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(path, 
         aiProcess_Triangulate | 
-        aiProcess_GenSmoothNormals | 
-        aiProcess_FlipUVs |
+        aiProcess_GenSmoothNormals |
         aiProcess_CalcTangentSpace);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
@@ -679,15 +683,7 @@ int main() {
         for (auto& train : trains) {
             glUniformMatrix4fv(glGetUniformLocation(modelShader, "model"), 1, GL_FALSE, glm::value_ptr(train.transform));
             
-            // Проверяем, есть ли текстура у меша
-            bool hasTexture = false;
-            if (!train.meshes.empty() && !train.meshes[0].textures.empty()) {
-                hasTexture = true;
-                glUniform1i(glGetUniformLocation(modelShader, "hasTexture"), 1);
-            } else {
-                glUniform1i(glGetUniformLocation(modelShader, "hasTexture"), 0);
-            }
-            
+            // Each mesh selects its own material texture in Mesh::draw().
             train.draw(modelShader);
         }
 
