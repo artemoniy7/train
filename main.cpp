@@ -551,8 +551,8 @@ bool previousRouteLeftMousePressed = false;
 bool customRouteClosed = false;
 bool customRouteChanged = false;
 std::vector<glm::vec3> customRoutePoints;
-// Distances along an open custom route where it doubles back.  A train must
-// stop here before it can continue along the reversed portion of the route.
+// Every completed route waypoint is an operational stop before the train
+// continues to the following waypoint.
 std::vector<float> customRouteStopPositions;
 std::optional<RoutePoint> customRouteFirstTrackPoint;
 std::optional<RoutePoint> customRouteLastTrackPoint;
@@ -566,9 +566,6 @@ constexpr float routeCloseSnapDistanceMeters = 1.25f;
 // floating point curve calculations.  This is deliberately much smaller than
 // the editor snapping radius, so nearby but unconnected rails stay separate.
 constexpr float routeJunctionToleranceMeters = 0.05f;
-// A departure onto any branch in the opposite half-plane needs a direction
-// change.  Requiring an almost-perfect 180-degree turn misses diverging rails.
-constexpr float routeReversalDotProductThreshold = 0.0f;
 constexpr float routeReversalStopDurationSeconds = 2.0f;
 
 bool saveTrackMap() {
@@ -1409,19 +1406,6 @@ void appendRoutePoint(std::vector<glm::vec3>& points, const glm::vec3& point) {
     if (points.empty() || glm::length(points.back() - point) > 0.001f) points.push_back(point);
 }
 
-bool routeReversesAt(const std::vector<glm::vec3>& points, size_t connectionIndex) {
-    if (connectionIndex == 0 || connectionIndex + 1 >= points.size()) return false;
-
-    const glm::vec3 incoming = points[connectionIndex] - points[connectionIndex - 1];
-    const glm::vec3 outgoing = points[connectionIndex + 1] - points[connectionIndex];
-    const float incomingLength = glm::length(incoming);
-    const float outgoingLength = glm::length(outgoing);
-    if (incomingLength <= 0.001f || outgoingLength <= 0.001f) return false;
-
-    return glm::dot(incoming / incomingLength, outgoing / outgoingLength) <=
-        routeReversalDotProductThreshold;
-}
-
 void appendSegmentPath(std::vector<glm::vec3>& points, size_t segmentIndex,
                        float fromDistance, float toDistance) {
     const TrackSegment& segment = trackSegments[segmentIndex];
@@ -2007,7 +1991,7 @@ int main() {
                                 customRouteLastTrackPoint = snappedPoint;
                                 customRouteChanged = true;
                             } else {
-                                const size_t connectionIndex = customRoutePoints.size() - 1;
+                                const size_t routePointCount = customRoutePoints.size();
                                 const float connectionPosition = customRouteLength();
                                 if (!appendTrackPath(customRoutePoints, *customRouteLastTrackPoint,
                                                      *snappedPoint)) {
@@ -2015,7 +1999,7 @@ int main() {
                                 } else {
                                     customRouteLastTrackPoint = snappedPoint;
                                     customRouteChanged = true;
-                                    if (routeReversesAt(customRoutePoints, connectionIndex)) {
+                                    if (customRoutePoints.size() > routePointCount) {
                                         customRouteStopPositions.push_back(connectionPosition);
                                     }
                                 }
