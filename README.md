@@ -37,3 +37,11 @@ tool is intentionally ignored. Curves are limited to a 20 m minimum radius and
 Pressing `Esc` saves all placed rail segments to `maps/latest_track_map.json`.
 The human-readable JSON file is versioned and stores each segment's endpoints,
 initial heading, curvature, and length; a later save replaces the previous map.
+The simulator loads this file automatically on startup; it uses the built-in
+demonstration track only when the file is absent or invalid.
+
+Press `P` to create a custom train route. Left-click rail segments to add blue
+route points; the points are snapped to the rail. Click the first point after
+placing at least three points to close the route, or right-click to remove the
+last point. An open route makes trains shuttle between its endpoints; a closed
+route loops continuously.
