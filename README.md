@@ -54,5 +54,7 @@ custom route and return trains to the normal track route. Every route point
 between the endpoints is a stop: the train brakes to a complete halt there and
 waits briefly before continuing to the next point. This also ensures a stop at
 a point before the route leaves it in the opposite direction or onto another
-branch. An open route makes trains shuttle between its endpoints; a closed
-route loops continuously.
+branch. Sharp junctions inserted while the simulator finds a shortest rail
+path are also stops, even when they are not a point clicked in the editor. An
+open route makes trains shuttle between its endpoints; a closed route loops
+continuously.
