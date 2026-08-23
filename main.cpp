@@ -529,6 +529,12 @@ struct RoutePoint {
     float distanceAlongSegment = 0.0f;
 };
 
+struct RoutePoint {
+    glm::vec3 position;
+    size_t segmentIndex = 0;
+    float distanceAlongSegment = 0.0f;
+};
+
 enum class TrackBuildTool { Straight, Curve };
 
 bool trackBuildMode = false;
@@ -1041,7 +1047,7 @@ unsigned int previewVBO = 0;
 void drawTrackPreview(unsigned int shaderProgram, const std::vector<glm::vec3>& points,
                       const glm::mat4& view, const glm::mat4& projection,
                       const glm::vec3& color) {
-    if (points.size() < 2) return;
+    if (points.empty()) return;
     if (previewVAO == 0) {
         glGenVertexArrays(1, &previewVAO);
         glGenBuffers(1, &previewVBO);
@@ -1056,8 +1062,13 @@ void drawTrackPreview(unsigned int shaderProgram, const std::vector<glm::vec3>& 
     glBufferData(GL_ARRAY_BUFFER, points.size() * sizeof(glm::vec3), points.data(), GL_DYNAMIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), nullptr);
     glEnableVertexAttribArray(0);
-    glLineWidth(4.0f);
-    glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(points.size()));
+    if (points.size() == 1) {
+        glPointSize(12.0f);
+        glDrawArrays(GL_POINTS, 0, 1);
+    } else {
+        glLineWidth(4.0f);
+        glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(points.size()));
+    }
     glBindVertexArray(0);
 }
 
@@ -1197,7 +1208,7 @@ struct TrackConnection {
 
 TrackConnection snapTrackConnection(const glm::vec3& position) {
     TrackConnection closest{position, std::nullopt, false};
-    float closestDistance = trackSnapDistanceMeters;
+    float closestDistance = trackSnapDistanceMeters; // <-- было routeSnapDistanceMeters
     for (const TrackSegment& segment : trackSegments) {
         const float endHeading = segment.startHeadingRadians +
             segment.curvatureRadiansPerMeter * segment.length;
@@ -1415,6 +1426,86 @@ void appendSegmentPath(std::vector<glm::vec3>& points, size_t segmentIndex,
         }
         appendRoutePoint(points, point);
     }
+}
+
+// Finds the shortest connected rail path instead of relying on creation order.
+// Each segment endpoint is a graph node; coincident endpoints form a junction.
+bool appendTrackPath(std::vector<glm::vec3>& points, const RoutePoint& from, const RoutePoint& to) {
+    if (from.segmentIndex >= trackSegments.size() || to.segmentIndex >= trackSegments.size()) return false;
+    if (from.segmentIndex == to.segmentIndex) {
+        appendSegmentPath(points, from.segmentIndex, from.distanceAlongSegment, to.distanceAlongSegment);
+        return true;
+    }
+
+    struct Edge { size_t node; float cost; std::optional<size_t> segmentIndex; };
+    const size_t nodeCount = trackSegments.size() * 2;
+    std::vector<std::vector<Edge>> graph(nodeCount);
+    for (size_t i = 0; i < trackSegments.size(); ++i) {
+        const size_t startNode = i * 2, endNode = startNode + 1;
+        graph[startNode].push_back({endNode, trackSegments[i].length, i});
+        graph[endNode].push_back({startNode, trackSegments[i].length, i});
+    }
+    for (size_t first = 0; first < nodeCount; ++first) {
+        const glm::vec3 firstPosition = first % 2 == 0 ? trackSegments[first / 2].start : trackSegments[first / 2].end;
+        for (size_t second = first + 1; second < nodeCount; ++second) {
+            const glm::vec3 secondPosition = second % 2 == 0 ? trackSegments[second / 2].start : trackSegments[second / 2].end;
+            if (glm::length(firstPosition - secondPosition) <= routeJunctionToleranceMeters) {
+                graph[first].push_back({second, 0.0f, std::nullopt});
+                graph[second].push_back({first, 0.0f, std::nullopt});
+            }
+        }
+    }
+
+    const TrackSegment& fromSegment = trackSegments[from.segmentIndex];
+    const TrackSegment& toSegment = trackSegments[to.segmentIndex];
+    const float infinity = std::numeric_limits<float>::infinity();
+    std::vector<float> distances(nodeCount, infinity);
+    std::vector<size_t> previous(nodeCount, nodeCount);
+    std::vector<std::optional<size_t>> previousSegment(nodeCount);
+    using QueueEntry = std::pair<float, size_t>;
+    std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> queue;
+    const std::array<std::pair<size_t, float>, 2> sources{{
+        {from.segmentIndex * 2, from.distanceAlongSegment},
+        {from.segmentIndex * 2 + 1, fromSegment.length - from.distanceAlongSegment}
+    }};
+    for (const auto& [node, cost] : sources) { distances[node] = cost; queue.push({cost, node}); }
+    while (!queue.empty()) {
+        const auto [distance, node] = queue.top(); queue.pop();
+        if (distance != distances[node]) continue;
+        for (const Edge& edge : graph[node]) {
+            if (distance + edge.cost < distances[edge.node]) {
+                distances[edge.node] = distance + edge.cost;
+                previous[edge.node] = node;
+                previousSegment[edge.node] = edge.segmentIndex;
+                queue.push({distances[edge.node], edge.node});
+            }
+        }
+    }
+    const size_t toStart = to.segmentIndex * 2, toEnd = toStart + 1;
+    const float viaStart = distances[toStart] + to.distanceAlongSegment;
+    const float viaEnd = distances[toEnd] + toSegment.length - to.distanceAlongSegment;
+    const size_t destination = viaStart <= viaEnd ? toStart : toEnd;
+    if (!std::isfinite(distances[destination])) return false;
+
+    std::vector<size_t> nodes;
+    for (size_t node = destination; node != nodeCount; node = previous[node]) nodes.push_back(node);
+    std::reverse(nodes.begin(), nodes.end());
+    appendSegmentPath(points, from.segmentIndex, from.distanceAlongSegment,
+                      nodes.front() % 2 == 0 ? 0.0f : fromSegment.length);
+    for (size_t i = 1; i < nodes.size(); ++i) {
+        if (previousSegment[nodes[i]]) {
+            const size_t segmentIndex = *previousSegment[nodes[i]];
+            appendSegmentPath(points, segmentIndex,
+                              nodes[i - 1] % 2 == 0 ? 0.0f : trackSegments[segmentIndex].length,
+                              nodes[i] % 2 == 0 ? 0.0f : trackSegments[segmentIndex].length);
+        } else {
+            appendRoutePoint(points, nodes[i] % 2 == 0 ? trackSegments[nodes[i] / 2].start
+                                                       : trackSegments[nodes[i] / 2].end);
+        }
+    }
+    appendSegmentPath(points, to.segmentIndex, destination % 2 == 0 ? 0.0f : toSegment.length,
+                      to.distanceAlongSegment);
+    return true;
 }
 
 // Finds the shortest connected rail path instead of relying on creation order.
@@ -2030,8 +2121,9 @@ int main() {
 
 
         drawTrackPreview(previewShader, previewPoints, view, projection, glm::vec3(0.1f, 1.0f, 0.15f));
-        if (routePreviewPoints.size() >= 2) {
+        if (!routePreviewPoints.empty()) {
             if (customRouteClosed) routePreviewPoints.push_back(routePreviewPoints.front());
+            for (glm::vec3& point : routePreviewPoints) point.y += 0.12f;
             drawTrackPreview(previewShader, routePreviewPoints, view, projection, glm::vec3(0.1f, 0.4f, 1.0f));
         }
 
