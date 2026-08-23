@@ -548,6 +548,7 @@ constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
 constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
 constexpr float minimumCurveRadiusMeters = 20.0f;
 constexpr float routeCloseSnapDistanceMeters = 1.25f;
+constexpr float routeSnapDistanceMeters = 3.0f;
 
 bool saveTrackMap() {
     const fs::path mapDirectory = "maps";
@@ -1029,7 +1030,7 @@ unsigned int previewVBO = 0;
 void drawTrackPreview(unsigned int shaderProgram, const std::vector<glm::vec3>& points,
                       const glm::mat4& view, const glm::mat4& projection,
                       const glm::vec3& color) {
-    if (points.size() < 2) return;
+    if (points.empty()) return;
     if (previewVAO == 0) {
         glGenVertexArrays(1, &previewVAO);
         glGenBuffers(1, &previewVBO);
@@ -1044,8 +1045,13 @@ void drawTrackPreview(unsigned int shaderProgram, const std::vector<glm::vec3>& 
     glBufferData(GL_ARRAY_BUFFER, points.size() * sizeof(glm::vec3), points.data(), GL_DYNAMIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), nullptr);
     glEnableVertexAttribArray(0);
-    glLineWidth(4.0f);
-    glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(points.size()));
+    if (points.size() == 1) {
+        glPointSize(12.0f);
+        glDrawArrays(GL_POINTS, 0, 1);
+    } else {
+        glLineWidth(4.0f);
+        glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(points.size()));
+    }
     glBindVertexArray(0);
 }
 
@@ -1185,7 +1191,7 @@ struct TrackConnection {
 
 TrackConnection snapTrackConnection(const glm::vec3& position) {
     TrackConnection closest{position, std::nullopt, false};
-    float closestDistance = trackSnapDistanceMeters;
+    float closestDistance = routeSnapDistanceMeters;
     for (const TrackSegment& segment : trackSegments) {
         const float endHeading = segment.startHeadingRadians +
             segment.curvatureRadiansPerMeter * segment.length;
@@ -1819,9 +1825,11 @@ int main() {
                             if (!customRouteLastTrackDistance) {
                                 customRoutePoints.push_back(snappedPoint->position);
                                 customRouteFirstTrackDistance = snappedPoint->trackDistance;
+                                std::cout << "Route start selected" << std::endl;
                             } else {
                                 appendTrackPath(customRoutePoints, *customRouteLastTrackDistance,
                                                 snappedPoint->trackDistance);
+                                std::cout << "Route extended along rails" << std::endl;
                             }
                             customRouteLastTrackDistance = snappedPoint->trackDistance;
                         }
@@ -1918,8 +1926,9 @@ int main() {
 
 
         drawTrackPreview(previewShader, previewPoints, view, projection, glm::vec3(0.1f, 1.0f, 0.15f));
-        if (routePreviewPoints.size() >= 2) {
+        if (!routePreviewPoints.empty()) {
             if (customRouteClosed) routePreviewPoints.push_back(routePreviewPoints.front());
+            for (glm::vec3& point : routePreviewPoints) point.y += 0.12f;
             drawTrackPreview(previewShader, routePreviewPoints, view, projection, glm::vec3(0.1f, 0.4f, 1.0f));
         }
 
