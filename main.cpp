@@ -24,6 +24,8 @@
 #include <cstdint>
 #include <cmath>
 #include <array>
+#include <queue>
+#include <limits>
 #include <cstdio>
 #include "json.hpp"
 
@@ -521,6 +523,12 @@ struct RouteSample {
     glm::vec3 direction = glm::vec3(0.0f, 0.0f, 1.0f);
 };
 
+struct RoutePoint {
+    glm::vec3 position;
+    size_t segmentIndex = 0;
+    float distanceAlongSegment = 0.0f;
+};
+
 enum class TrackBuildTool { Straight, Curve };
 
 bool trackBuildMode = false;
@@ -540,14 +548,18 @@ bool previousRouteLeftMousePressed = false;
 bool customRouteClosed = false;
 bool customRouteChanged = false;
 std::vector<glm::vec3> customRoutePoints;
-std::optional<float> customRouteFirstTrackDistance;
-std::optional<float> customRouteLastTrackDistance;
+std::optional<RoutePoint> customRouteFirstTrackPoint;
+std::optional<RoutePoint> customRouteLastTrackPoint;
 
 constexpr float trackSnapDistanceMeters = 1.25f;
 constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
 constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
 constexpr float minimumCurveRadiusMeters = 20.0f;
 constexpr float routeCloseSnapDistanceMeters = 1.25f;
+// Track pieces created at the same endpoint can differ slightly because of
+// floating point curve calculations.  This is deliberately much smaller than
+// the editor snapping radius, so nearby but unconnected rails stay separate.
+constexpr float routeJunctionToleranceMeters = 0.05f;
 
 bool saveTrackMap() {
     const fs::path mapDirectory = "maps";
@@ -1359,15 +1371,11 @@ RouteSample sampleActiveRoute(float routePosition) {
                                          : sampleTrackRoute(routePosition);
 }
 
-struct RoutePoint {
-    glm::vec3 position;
-    float trackDistance = 0.0f;
-};
-
 std::optional<RoutePoint> snapRoutePoint(const glm::vec3& position) {
     std::optional<RoutePoint> closest;
     float closestDistance = trackSnapDistanceMeters;
-    for (const TrackSegment& segment : trackSegments) {
+    for (size_t segmentIndex = 0; segmentIndex < trackSegments.size(); ++segmentIndex) {
+        const TrackSegment& segment = trackSegments[segmentIndex];
         const glm::vec3 offset = segment.end - segment.start;
         const float squaredLength = glm::dot(offset, offset);
         if (squaredLength <= 0.0001f) continue;
@@ -1375,28 +1383,125 @@ std::optional<RoutePoint> snapRoutePoint(const glm::vec3& position) {
         const glm::vec3 projected = segment.start + offset * t;
         const float distance = glm::length(position - projected);
         if (distance < closestDistance) {
-            closest = {projected, segment.distanceFromRouteStart + t * segment.length};
+            closest = {projected, segmentIndex, t * segment.length};
             closestDistance = distance;
         }
     }
     return closest;
 }
 
-void appendTrackPath(std::vector<glm::vec3>& points, float fromDistance, float toDistance) {
+void appendRoutePoint(std::vector<glm::vec3>& points, const glm::vec3& point) {
+    if (points.empty() || glm::length(points.back() - point) > 0.001f) points.push_back(point);
+}
+
+void appendSegmentPath(std::vector<glm::vec3>& points, size_t segmentIndex,
+                       float fromDistance, float toDistance) {
+    const TrackSegment& segment = trackSegments[segmentIndex];
     const float distance = std::abs(toDistance - fromDistance);
     const int stepCount = std::max(1, static_cast<int>(std::ceil(distance)));
     for (int step = 0; step <= stepCount; ++step) {
         const float fraction = static_cast<float>(step) / stepCount;
-        const glm::vec3 point = sampleTrackRoute(fromDistance + (toDistance - fromDistance) * fraction).position;
-        if (points.empty() || glm::length(points.back() - point) > 0.001f) points.push_back(point);
+        const float localDistance = fromDistance + (toDistance - fromDistance) * fraction;
+        const float heading = segment.startHeadingRadians +
+            segment.curvatureRadiansPerMeter * localDistance;
+        glm::vec3 point;
+        if (std::abs(segment.curvatureRadiansPerMeter) < 0.000001f) {
+            point = segment.start + glm::vec3(std::sin(heading), 0.0f, std::cos(heading)) * localDistance;
+        } else {
+            const float inverseCurvature = 1.0f / segment.curvatureRadiansPerMeter;
+            point = segment.start + glm::vec3(
+                (std::cos(segment.startHeadingRadians) - std::cos(heading)) * inverseCurvature, 0.0f,
+                (std::sin(heading) - std::sin(segment.startHeadingRadians)) * inverseCurvature);
+        }
+        appendRoutePoint(points, point);
     }
+}
+
+// Finds the shortest connected rail path instead of relying on creation order.
+// Each segment endpoint is a graph node; coincident endpoints form a junction.
+bool appendTrackPath(std::vector<glm::vec3>& points, const RoutePoint& from, const RoutePoint& to) {
+    if (from.segmentIndex >= trackSegments.size() || to.segmentIndex >= trackSegments.size()) return false;
+    if (from.segmentIndex == to.segmentIndex) {
+        appendSegmentPath(points, from.segmentIndex, from.distanceAlongSegment, to.distanceAlongSegment);
+        return true;
+    }
+
+    struct Edge { size_t node; float cost; std::optional<size_t> segmentIndex; };
+    const size_t nodeCount = trackSegments.size() * 2;
+    std::vector<std::vector<Edge>> graph(nodeCount);
+    for (size_t i = 0; i < trackSegments.size(); ++i) {
+        const size_t startNode = i * 2, endNode = startNode + 1;
+        graph[startNode].push_back({endNode, trackSegments[i].length, i});
+        graph[endNode].push_back({startNode, trackSegments[i].length, i});
+    }
+    for (size_t first = 0; first < nodeCount; ++first) {
+        const glm::vec3 firstPosition = first % 2 == 0 ? trackSegments[first / 2].start : trackSegments[first / 2].end;
+        for (size_t second = first + 1; second < nodeCount; ++second) {
+            const glm::vec3 secondPosition = second % 2 == 0 ? trackSegments[second / 2].start : trackSegments[second / 2].end;
+            if (glm::length(firstPosition - secondPosition) <= routeJunctionToleranceMeters) {
+                graph[first].push_back({second, 0.0f, std::nullopt});
+                graph[second].push_back({first, 0.0f, std::nullopt});
+            }
+        }
+    }
+
+    const TrackSegment& fromSegment = trackSegments[from.segmentIndex];
+    const TrackSegment& toSegment = trackSegments[to.segmentIndex];
+    const float infinity = std::numeric_limits<float>::infinity();
+    std::vector<float> distances(nodeCount, infinity);
+    std::vector<size_t> previous(nodeCount, nodeCount);
+    std::vector<std::optional<size_t>> previousSegment(nodeCount);
+    using QueueEntry = std::pair<float, size_t>;
+    std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> queue;
+    const std::array<std::pair<size_t, float>, 2> sources{{
+        {from.segmentIndex * 2, from.distanceAlongSegment},
+        {from.segmentIndex * 2 + 1, fromSegment.length - from.distanceAlongSegment}
+    }};
+    for (const auto& [node, cost] : sources) { distances[node] = cost; queue.push({cost, node}); }
+    while (!queue.empty()) {
+        const auto [distance, node] = queue.top(); queue.pop();
+        if (distance != distances[node]) continue;
+        for (const Edge& edge : graph[node]) {
+            if (distance + edge.cost < distances[edge.node]) {
+                distances[edge.node] = distance + edge.cost;
+                previous[edge.node] = node;
+                previousSegment[edge.node] = edge.segmentIndex;
+                queue.push({distances[edge.node], edge.node});
+            }
+        }
+    }
+    const size_t toStart = to.segmentIndex * 2, toEnd = toStart + 1;
+    const float viaStart = distances[toStart] + to.distanceAlongSegment;
+    const float viaEnd = distances[toEnd] + toSegment.length - to.distanceAlongSegment;
+    const size_t destination = viaStart <= viaEnd ? toStart : toEnd;
+    if (!std::isfinite(distances[destination])) return false;
+
+    std::vector<size_t> nodes;
+    for (size_t node = destination; node != nodeCount; node = previous[node]) nodes.push_back(node);
+    std::reverse(nodes.begin(), nodes.end());
+    appendSegmentPath(points, from.segmentIndex, from.distanceAlongSegment,
+                      nodes.front() % 2 == 0 ? 0.0f : fromSegment.length);
+    for (size_t i = 1; i < nodes.size(); ++i) {
+        if (previousSegment[nodes[i]]) {
+            const size_t segmentIndex = *previousSegment[nodes[i]];
+            appendSegmentPath(points, segmentIndex,
+                              nodes[i - 1] % 2 == 0 ? 0.0f : trackSegments[segmentIndex].length,
+                              nodes[i] % 2 == 0 ? 0.0f : trackSegments[segmentIndex].length);
+        } else {
+            appendRoutePoint(points, nodes[i] % 2 == 0 ? trackSegments[nodes[i] / 2].start
+                                                       : trackSegments[nodes[i] / 2].end);
+        }
+    }
+    appendSegmentPath(points, to.segmentIndex, destination % 2 == 0 ? 0.0f : toSegment.length,
+                      to.distanceAlongSegment);
+    return true;
 }
 
 void clearCustomRoute() {
     customRoutePoints.clear();
     customRouteClosed = false;
-    customRouteFirstTrackDistance.reset();
-    customRouteLastTrackDistance.reset();
+    customRouteFirstTrackPoint.reset();
+    customRouteLastTrackPoint.reset();
     customRouteChanged = true;
 }
 
@@ -1754,9 +1859,6 @@ int main() {
         if (pPressed && !previousPPressed) {
             routeBuildMode = !routeBuildMode;
             if (routeBuildMode) trackBuildMode = false;
-            if (routeBuildMode && customRouteClosed) {
-                clearCustomRoute();
-            }
             glfwSetInputMode(window, GLFW_CURSOR,
                              (trackBuildMode || routeBuildMode) ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             firstMouse = true;
@@ -1810,22 +1912,32 @@ int main() {
                 const auto snappedPoint = snapRoutePoint(*cursorPosition);
                 if (snappedPoint) {
                     if (leftPressed && !previousRouteLeftMousePressed) {
-                        if (customRouteFirstTrackDistance && customRouteLastTrackDistance &&
+                        if (!customRouteClosed && customRouteFirstTrackPoint && customRouteLastTrackPoint &&
                             glm::length(snappedPoint->position - customRoutePoints.front()) < routeCloseSnapDistanceMeters) {
-                            appendTrackPath(customRoutePoints, *customRouteLastTrackDistance,
-                                            *customRouteFirstTrackDistance);
-                            customRouteClosed = true;
-                        } else if (!customRouteClosed) {
-                            if (!customRouteLastTrackDistance) {
-                                customRoutePoints.push_back(snappedPoint->position);
-                                customRouteFirstTrackDistance = snappedPoint->trackDistance;
+                            if (appendTrackPath(customRoutePoints, *customRouteLastTrackPoint,
+                                                *customRouteFirstTrackPoint)) {
+                                customRouteClosed = true;
+                                customRouteChanged = true;
                             } else {
-                                appendTrackPath(customRoutePoints, *customRouteLastTrackDistance,
-                                                snappedPoint->trackDistance);
+                                std::cout << "Cannot close route: rails are not connected" << std::endl;
                             }
-                            customRouteLastTrackDistance = snappedPoint->trackDistance;
+                        } else {
+                            // Opening the editor must not erase a finished route.  Start a
+                            // replacement only after the user actually chooses its first point.
+                            if (customRouteClosed) clearCustomRoute();
+                            if (!customRouteLastTrackPoint) {
+                                customRoutePoints.push_back(snappedPoint->position);
+                                customRouteFirstTrackPoint = snappedPoint;
+                                customRouteLastTrackPoint = snappedPoint;
+                                customRouteChanged = true;
+                            } else if (appendTrackPath(customRoutePoints, *customRouteLastTrackPoint,
+                                                       *snappedPoint)) {
+                                customRouteLastTrackPoint = snappedPoint;
+                                customRouteChanged = true;
+                            } else {
+                                std::cout << "Cannot extend route: rails are not connected" << std::endl;
+                            }
                         }
-                        customRouteChanged = true;
                     }
                 }
             }
