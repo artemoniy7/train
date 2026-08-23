@@ -107,9 +107,6 @@ struct Mesh {
     }
 
     void draw(unsigned int shaderProgram) {
-        // The GLB base-colour map is the diffuse texture.  Always bind it to
-        // the sampler the shader actually uses, rather than relying on the
-        // OpenGL default texture unit left by a previous mesh.
         const auto diffuseTexture = std::find_if(
             textures.begin(), textures.end(),
             [](const Texture& texture) { return texture.type == "diffuse"; });
@@ -152,9 +149,6 @@ struct Model {
     float fuelConsumptionLPerKm = 0.0f;
     std::vector<Mesh> meshes;
     glm::mat4 transform = glm::mat4(1.0f);
-    // Transform of the mesh node in the source glTF.  The track mesh is
-    // offset from its start/end helper nodes, so dropping this transform
-    // makes the visible rail disagree with the route.
     glm::mat4 sourceTransform = glm::mat4(1.0f);
     std::map<std::string, glm::vec3> markers;
     glm::vec3 position = glm::vec3(0.0f);
@@ -201,8 +195,6 @@ struct TrainConfiguration {
     std::string engineSound;
 };
 
-// A configuration lives next to a model so every train folder is self-contained.
-// Keep the historic `confg.json` spelling as a supported alias for existing assets.
 std::optional<TrainConfiguration> loadTrainConfiguration(const fs::path& trainDirectory) {
     const fs::path configPath = fs::exists(trainDirectory / "config.json")
         ? trainDirectory / "config.json" : trainDirectory / "confg.json";
@@ -276,59 +268,6 @@ public:
         updateSource(train);
         alSourcePlay(source);
         return true;
-    }
-
-    bool loadOneShotBuffer(const fs::path& soundPath, unsigned int& buffer, float& durationSeconds) const {
-        std::vector<char> pcm;
-        ALenum format;
-        ALsizei sampleRate;
-        if (!loadPcmSound(soundPath, pcm, format, sampleRate, durationSeconds)) {
-            std::cout << "Cannot load rail joint sound: " << soundPath << std::endl;
-            return false;
-        }
-
-        alGenBuffers(1, &buffer);
-        alBufferData(buffer, format, pcm.data(), static_cast<ALsizei>(pcm.size()), sampleRate);
-        return true;
-    }
-
-    unsigned int playOneShot(unsigned int buffer, const glm::vec3& position, float pitch, float gain) const {
-        ALuint source = 0;
-        alGenSources(1, &source);
-        alSourcei(source, AL_BUFFER, buffer);
-        alSourcei(source, AL_LOOPING, AL_FALSE);
-        alSource3f(source, AL_POSITION, position.x, position.y, position.z);
-        alSourcef(source, AL_REFERENCE_DISTANCE, 5.0f);
-        alSourcef(source, AL_MAX_DISTANCE, 120.0f);
-        alSourcef(source, AL_ROLLOFF_FACTOR, 1.4f);
-        alSourcef(source, AL_PITCH, pitch);
-        alSourcef(source, AL_GAIN, gain);
-        alSourcePlay(source);
-        return source;
-    }
-
-    void cleanupStoppedSources(std::vector<unsigned int>& sources) const {
-        sources.erase(std::remove_if(sources.begin(), sources.end(), [](unsigned int source) {
-            ALint state = AL_STOPPED;
-            alGetSourcei(source, AL_SOURCE_STATE, &state);
-            if (state == AL_STOPPED) {
-                alDeleteSources(1, &source);
-                return true;
-            }
-            return false;
-        }), sources.end());
-    }
-
-    void releaseSources(std::vector<unsigned int>& sources) const {
-        if (!sources.empty()) {
-            alDeleteSources(static_cast<ALsizei>(sources.size()), sources.data());
-            sources.clear();
-        }
-    }
-
-    void releaseBuffer(unsigned int& buffer) const {
-        if (buffer != 0) alDeleteBuffers(1, &buffer);
-        buffer = 0;
     }
 
     bool loadOneShotBuffer(const fs::path& soundPath, unsigned int& buffer, float& durationSeconds) const {
@@ -503,9 +442,6 @@ private:
             } else input.seekg(size + (size & 1), std::ios::cur);
         }
         if (encoding != 1 || pcm.empty() || (channels != 1 && channels != 2)) return false;
-        // OpenAL only spatializes mono buffers.  Downmix supplied stereo idle
-        // recordings so the source really belongs to the locomotive and is
-        // attenuated as the camera moves away.
         if (bitsPerSample == 8 && channels == 2) {
             std::vector<char> mono(pcm.size() / 2);
             for (size_t i = 0; i < mono.size(); ++i) {
@@ -584,20 +520,6 @@ struct RouteSample {
     glm::vec3 direction = glm::vec3(0.0f, 0.0f, 1.0f);
 };
 
-struct TrackJointSound {
-    glm::vec3 position;
-    float routePosition = 0.0f;
-};
-
-std::vector<TrackJointSound> trackJointSounds;
-std::vector<unsigned int> activeJointSoundSources;
-unsigned int jointSoundBuffer = 0;
-float jointSoundDurationSeconds = 0.0f;
-
-constexpr float jointSoundIntervalMeters = 25.0f;
-constexpr float jointTwoAxleDistanceMeters = 2.7f;
-constexpr float jointSoundPaddingSeconds = 0.08f;
-
 // Обработчики GLFW
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -649,8 +571,6 @@ unsigned int loadTextureFromMemory(const unsigned char* data, int width, int hei
     else if (channels == 4)
         format = GL_RGBA;
 
-    // PNG/JPEG rows are tightly packed.  Without this, RGB images whose row
-    // width is not a multiple of four get corrupted when uploaded to OpenGL.
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
@@ -673,14 +593,12 @@ unsigned int loadEmbeddedTexture(const aiTexture* embeddedTexture) {
     unsigned char* data = nullptr;
 
     if (embeddedTexture->mHeight == 0) {
-        // Сжатая текстура (PNG, JPG и т.д.)
         data = stbi_load_from_memory(
             reinterpret_cast<const unsigned char*>(embeddedTexture->pcData),
             embeddedTexture->mWidth,
             &width, &height, &channels, 0
         );
     } else {
-        // Несжатая текстура
         data = stbi_load_from_memory(
             reinterpret_cast<const unsigned char*>(embeddedTexture->pcData),
             embeddedTexture->mWidth * embeddedTexture->mHeight * 4,
@@ -726,7 +644,6 @@ std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, s
         aiString str;
         mat->GetTexture(type, i, &str);
 
-        // Проверяем, не загружена ли уже эта текстура
         bool skip = false;
         for (unsigned int j = 0; j < textures.size(); j++) {
             if (std::strcmp(textures[j].path.c_str(), str.C_Str()) == 0) {
@@ -740,7 +657,6 @@ std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, s
             texture.type = typeName;
             texture.path = str.C_Str();
 
-            // Проверяем, встроенная ли текстура
             if (str.C_Str()[0] == '*') {
                 int textureIndex = std::stoi(str.C_Str() + 1);
 
@@ -764,7 +680,6 @@ std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, s
 Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& directory) {
     Mesh result;
 
-    // Вершины
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
         result.vertices.push_back(glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z));
         if (mesh->HasNormals()) {
@@ -775,7 +690,6 @@ Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& director
         }
     }
 
-    // Индексы
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
         aiFace face = mesh->mFaces[i];
         for (unsigned int j = 0; j < face.mNumIndices; j++) {
@@ -783,15 +697,9 @@ Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& director
         }
     }
 
-    // Материалы и текстуры
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 
-        // glTF stores Blender's Principled BSDF colour map in the PBR
-        // base-colour slot, not in Assimp's legacy diffuse slot.  Reading the
-        // base-colour slot first keeps every primitive paired with the texture
-        // assigned to its material in Blender.  Keep the diffuse lookup as a
-        // fallback for OBJ and older importers.
         std::vector<Texture> baseColorMaps = loadMaterialTextures(
             material, aiTextureType_BASE_COLOR, "diffuse", scene, directory);
         if (baseColorMaps.empty()) {
@@ -811,7 +719,6 @@ Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& director
     return result;
 }
 
-// Загрузка модели из файла
 Model loadModel(const std::string& path, const std::string& name) {
     Model model;
     model.name = name;
@@ -820,8 +727,6 @@ Model loadModel(const std::string& path, const std::string& name) {
     const aiScene* scene = importer.ReadFile(path,
         aiProcess_Triangulate |
         aiProcess_GenSmoothNormals |
-        // Assimp converts the glTF texture-coordinate convention on import;
-        // flip it back for OpenGL's texture upload convention.
         aiProcess_FlipUVs |
         aiProcess_CalcTangentSpace);
 
@@ -870,7 +775,7 @@ Model loadModel(const std::string& path, const std::string& name) {
     return model;
 }
 
-// Шейдер для модели с текстурами
+// Шейдеры
 const char* modelVertexShader = R"(
     #version 330 core
     layout (location = 0) in vec3 aPos;
@@ -904,8 +809,6 @@ const char* modelFragmentShader = R"(
     uniform vec3 lightPos;
     uniform vec3 viewPos;
     uniform sampler2D texture_diffuse1;
-    uniform sampler2D texture_specular1;
-    uniform sampler2D texture_normal1;
     uniform bool hasTexture;
 
     void main() {
@@ -916,17 +819,14 @@ const char* modelFragmentShader = R"(
             color = vec3(0.8f, 0.2f, 0.2f);
         }
 
-        // Ambient
         float ambientStrength = 0.3f;
         vec3 ambient = ambientStrength * color;
 
-        // Diffuse
         vec3 norm = normalize(Normal);
         vec3 lightDir = normalize(lightPos - FragPos);
         float diff = max(dot(norm, lightDir), 0.0f);
         vec3 diffuse = diff * color;
 
-        // Specular
         float specularStrength = 0.5f;
         vec3 viewDir = normalize(viewPos - FragPos);
         vec3 reflectDir = reflect(-lightDir, norm);
@@ -938,7 +838,6 @@ const char* modelFragmentShader = R"(
     }
 )";
 
-// Шейдер для плоскости
 const char* planeVertexShader = R"(
     #version 330 core
     layout (location = 0) in vec3 aPos;
@@ -996,7 +895,7 @@ unsigned int createShaderProgram(const char* vertexSource, const char* fragmentS
     return shaderProgram;
 }
 
-// Глобальные переменные для плоскости
+// Плоскость
 unsigned int planeVAO, planeVBO, planeEBO;
 bool planeInitialized = false;
 
@@ -1037,8 +936,6 @@ void drawPlane() {
     glBindVertexArray(0);
 }
 
-// Finds every train model, rather than choosing whichever directory happens to
-// be returned first by the filesystem.
 std::vector<fs::path> findTrainModelPaths() {
     std::vector<fs::path> modelPaths;
     if (!fs::exists("trains")) {
@@ -1141,26 +1038,6 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
     if (jointSoundBuffer == 0 || jointSoundDurationSeconds <= 0.0f) return;
 
     audioSystem.cleanupStoppedSources(activeJointSoundSources);
-    for (const Model& train : trains) {
-        if (train.routeDistance <= 0.0f || train.previousRoutePosition == train.routePosition) continue;
-
-        const float from = std::min(train.previousRoutePosition, train.routePosition);
-        const float to = std::max(train.previousRoutePosition, train.routePosition);
-        for (const TrackJointSound& joint : trackJointSounds) {
-            if (joint.routePosition < from || joint.routePosition > to) continue;
-
-            const float speedMs = std::max(std::abs(train.routeVelocity), 0.25f);
-            const float targetDuration = jointTwoAxleDistanceMeters / speedMs + jointSoundPaddingSeconds;
-            const float pitch = std::clamp(jointSoundDurationSeconds / targetDuration, 0.25f, 2.0f);
-            activeJointSoundSources.push_back(audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch, 0.95f));
-        }
-    }
-}
-
-void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
-    if (jointSoundBuffer == 0 || jointSoundDurationSeconds <= 0.0f) return;
-
-    audioSystem.cleanupStoppedSources(activeJointSoundSources);
     
     for (const Model& train : trains) {
         if (train.routeDistance <= 0.0f || train.previousRoutePosition == train.routePosition) continue;
@@ -1173,50 +1050,31 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
         for (const TrackJointSound& joint : trackJointSounds) {
             if (joint.routePosition < from || joint.routePosition > to) continue;
 
-            // === РЕАЛИСТИЧНЫЙ ЗВУК СТЫКОВ ===
+            // РЕАЛИСТИЧНЫЙ ЗВУК СТЫКОВ
             
             // 1. Громкость: растет со скоростью, но с насыщением
-            // При 10 км/ч - тихо, при 60 км/ч - громко, выше - насыщение
             float volume = 0.0f;
             if (speedKmh < 5.0f) {
-                volume = 0.05f; // Почти неслышно
+                volume = 0.05f;
             } else if (speedKmh < 80.0f) {
                 volume = 0.1f + (speedKmh - 5.0f) / 75.0f * 0.8f;
             } else {
-                volume = 0.9f; // Насыщение
+                volume = 0.9f;
             }
             volume = std::clamp(volume, 0.0f, 1.0f);
             
-            // 2. Pitch: почти не меняется (только легкий эффект)
-            // В реальности звук стыка - это удар, его высота не зависит от скорости
+            // 2. Pitch: почти не меняется
             float pitch = 1.0f;
             
-            // 3. Небольшая случайность (каждый стык звучит чуть по-разному)
+            // 3. Случайность
             static unsigned int seed = 12345;
             seed = (seed * 1103515245 + 12345) & 0x7fffffff;
             float randomFactor = 0.85f + (seed % 30) / 100.0f;
             pitch *= randomFactor;
             
-            // 4. Эффект Доплера при высокой скорости (очень слабый)
+            // 4. Эффект Доплера
             if (speedKmh > 50.0f) {
                 pitch += (speedKmh - 50.0f) / 200.0f * 0.05f;
-            }
-            
-            // 5. Дополнительная громкость для второй оси (эффект двух колес)
-            // Создаем второй звук с небольшой задержкой для имитации двух осей
-            float axleDistance = 2.7f; // расстояние между осями в метрах
-            float delay = axleDistance / speedMs;
-            if (delay > 0.0f && delay < 0.5f) {
-                // Второй звук чуть тише
-                float volume2 = volume * 0.7f;
-                float pitch2 = pitch * (0.95f + (rand() % 10) / 100.0f);
-                
-                // Откладываем второй звук
-                // (здесь нужно было бы использовать задержку, но для простоты
-                // просто играем сразу с чуть другой громкостью)
-                activeJointSoundSources.push_back(
-                    audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch2, volume2 * 0.6f)
-                );
             }
             
             // Воспроизводим основной звук
@@ -1234,7 +1092,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Train Sim Engine - Textured Train", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Train Sim Engine", NULL, NULL);
     if (window == NULL) {
         std::cout << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -1252,49 +1110,45 @@ int main() {
     }
 
     glEnable(GL_DEPTH_TEST);
-    //glEnable(GL_CULL_FACE);
     glClearColor(0.53f, 0.81f, 0.92f, 1.0f);
 
     TrainAudioSystem trainAudio;
     const bool audioAvailable = trainAudio.initialize();
 
-    // Создаем шейдеры
     unsigned int modelShader = createShaderProgram(modelVertexShader, modelFragmentShader);
     unsigned int planeShader = createShaderProgram(planeVertexShader, planeFragmentShader);
 
-    // Инициализируем плоскость
     initPlane();
 
-    // Blender assets use two source units per metre.  A 5 m rail piece has
-    // endpoints 10 source units apart, therefore the common scale below keeps
-    // each generated route segment at 5 metres.  Build a route from straight
-    // spans and gradual 5 m chord turns: the same path data is used both for
-    // drawing rails and for moving trains, so curves are now driveable instead
-    // of being only visual decoration.
-    constexpr int straightBeforeCurvePieces = 40;
-    constexpr int firstCurvePieces = 20;
-    constexpr int straightAfterCurvePieces = 20;
-    constexpr int secondCurvePieces = 20;
-    constexpr int trackPieceCount = straightBeforeCurvePieces + firstCurvePieces
-        + straightAfterCurvePieces + secondCurvePieces;
+    // Загрузка модели рельсов
+    constexpr int trackPieceCount = 100;
     constexpr float trackPieceLength = 5.0f;
     constexpr float assetScale = 0.5f;
-    constexpr float quarterTurnRadians = glm::half_pi<float>();
     Model rail = loadModel("rails/5m_track.glb", "5m_track");
+    
     if (rail.meshes.empty() || rail.markers.count("track_start") == 0 ||
         rail.markers.count("track_end") == 0) {
-        std::cout << "Rail model or its track_start/track_end markers were not found" << std::endl;
+        std::cout << "Rail model or its markers were not found" << std::endl;
     } else {
-        glm::vec3 cursor(0.0f, 0.0f, -0.5f * trackPieceLength);
+        glm::vec3 cursor(0.0f, 0.0f, 0.0f);
         float headingRadians = 0.0f;
         float routeDistance = 0.0f;
+        const float turnRate = 0.04f;
+        int curveStart = 30;
+        int curveEnd = 70;
 
-        auto appendPiece = [&](float headingDeltaAfterPiece) {
+        for (int i = 0; i < trackPieceCount; ++i) {
+            float headingDelta = 0.0f;
+            if (i >= curveStart && i < curveEnd) {
+                headingDelta = turnRate;
+            }
+            
             const glm::vec3 direction(std::sin(headingRadians), 0.0f, std::cos(headingRadians));
             const glm::vec3 start = cursor;
             const glm::vec3 end = start + direction * trackPieceLength;
             const glm::vec3 center = start + direction * (0.5f * trackPieceLength);
             const glm::mat4 instanceTransform = createTrackAlignedTransform(center, direction, assetScale);
+            
             trackSegments.push_back({
                 instanceTransform,
                 start,
@@ -1303,15 +1157,11 @@ int main() {
                 trackPieceLength,
                 routeDistance
             });
+            
             cursor = end;
             routeDistance += trackPieceLength;
-            headingRadians += headingDeltaAfterPiece;
-        };
-
-        for (int i = 0; i < straightBeforeCurvePieces; ++i) appendPiece(0.0f);
-        for (int i = 0; i < firstCurvePieces; ++i) appendPiece(quarterTurnRadians / firstCurvePieces);
-        for (int i = 0; i < straightAfterCurvePieces; ++i) appendPiece(0.0f);
-        for (int i = 0; i < secondCurvePieces; ++i) appendPiece(-quarterTurnRadians / secondCurvePieces);
+            headingRadians += headingDelta;
+        }
 
         std::cout << "Built test track: " << routeDistance
                   << " m (" << trackSegments.size() << " connected pieces)" << std::endl;
@@ -1325,8 +1175,7 @@ int main() {
                 routePosition
             });
         }
-        std::cout << "Prepared " << trackJointSounds.size() << " rail joint sound points every "
-                  << jointSoundIntervalMeters << " m" << std::endl;
+        std::cout << "Prepared " << trackJointSounds.size() << " rail joint sound points" << std::endl;
     }
 
     if (audioAvailable) {
@@ -1336,8 +1185,7 @@ int main() {
         trainAudio.loadOneShotBuffer(jointSoundPath, jointSoundBuffer, jointSoundDurationSeconds);
     }
 
-    // Each directory below trains/ is an independent train package.  Its model,
-    // configuration and sound are therefore applied to all loaded locomotives.
+    // Загрузка поездов
     const std::vector<fs::path> modelPaths = findTrainModelPaths();
     if (!modelPaths.empty()) {
         for (const fs::path& modelPath : modelPaths) {
@@ -1363,10 +1211,7 @@ int main() {
                           << configuration->weightTonnes << " t, maximum "
                           << configuration->maxSpeedKmh << " km/h" << std::endl;
             }
-            // Put the locomotive onto the segmented route by matching its
-            // Pivot_back height to the rail line. Horizontal position and yaw
-            // come from sampleTrackRoute(), which works for both straights and
-            // curved chains of 5 m pieces.
+            
             const glm::vec3 pivotBack = train.markers.count("pivot_back")
                 ? train.markers["pivot_back"] : glm::vec3(0.0f);
             const float lineHeight = trackSegments.empty() ? 0.0f : trackSegments.front().start.y;
@@ -1380,6 +1225,7 @@ int main() {
                 : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
             train.routePosition = 0.0f;
             train.previousRoutePosition = train.routePosition;
+            
             const RouteSample initialSample = sampleTrackRoute(train.routePosition);
             train.routeDirection = initialSample.direction;
             train.position = initialSample.position;
@@ -1387,26 +1233,16 @@ int main() {
             train.scale = assetScale;
             train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
             train.transform *= train.sourceTransform;
+            
             if (audioAvailable && configuration && !configuration->engineSound.empty()) {
                 const fs::path soundPath = trainDirectory / "sounds" / configuration->engineSound;
                 trainAudio.startLoopingEngine(train, soundPath);
             }
             trains.push_back(std::move(train));
-            std::cout << "✓ Successfully loaded textured train on the track: " << trainName << std::endl;
-
-            // Выводим информацию о текстурах
-            const Model& loadedTrain = trains.back();
-            for (size_t i = 0; i < loadedTrain.meshes.size(); i++) {
-                std::cout << "  Mesh " << i << " has " << loadedTrain.meshes[i].textures.size() << " textures" << std::endl;
-                for (size_t j = 0; j < loadedTrain.meshes[i].textures.size(); j++) {
-                    std::cout << "    Texture " << j << ": " << loadedTrain.meshes[i].textures[j].type
-                              << " ID=" << loadedTrain.meshes[i].textures[j].id << std::endl;
-                }
-            }
+            std::cout << "✓ Successfully loaded train: " << trainName << std::endl;
         }
     } else {
         std::cout << "No train model found in trains/ folder!" << std::endl;
-        std::cout << "Please put your .glb file in: trains/your_train_name/model.glb" << std::endl;
     }
 
     std::cout << "=== TRAIN SIMULATOR ENGINE ===" << std::endl;
@@ -1445,14 +1281,16 @@ int main() {
 
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         trainAudio.updateListener(cameraPos, cameraFront, cameraUp);
+        
         for (auto& train : trains) {
             updateTrainMotion(train, deltaTime);
             trainAudio.updateEngine(train, cameraPos);
         }
         updateTrackJointSounds(trainAudio);
+        
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 800.0f);
 
-        // === РИСУЕМ ПЛОСКОСТЬ ===
+        // Плоскость
         glUseProgram(planeShader);
         glm::mat4 model = glm::mat4(1.0f);
         glUniformMatrix4fv(glGetUniformLocation(planeShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
@@ -1460,15 +1298,15 @@ int main() {
         glUniformMatrix4fv(glGetUniformLocation(planeShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
         drawPlane();
 
-        // === РИСУЕМ ПОЕЗД С ТЕКСТУРОЙ ===
+        // Рельсы и поезда
         glUseProgram(modelShader);
-        glm::vec3 lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
+        glm::vec3 lightPos = glm::vec3(5.0f, 20.0f, 5.0f);
         glUniform3fv(glGetUniformLocation(modelShader, "lightPos"), 1, glm::value_ptr(lightPos));
         glUniform3fv(glGetUniformLocation(modelShader, "viewPos"), 1, glm::value_ptr(cameraPos));
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
-        // === РИСУЕМ ТЕСТОВЫЙ ПУТЬ: 100 СЕКЦИЙ ПО 5 МЕТРОВ ===
+        // Рисуем рельсы
         for (const auto& segment : trackSegments) {
             const glm::mat4 railTransform = segment.transform * rail.sourceTransform;
             glUniformMatrix4fv(glGetUniformLocation(modelShader, "model"), 1, GL_FALSE,
@@ -1476,10 +1314,9 @@ int main() {
             rail.draw(modelShader);
         }
 
+        // Рисуем поезда
         for (auto& train : trains) {
             glUniformMatrix4fv(glGetUniformLocation(modelShader, "model"), 1, GL_FALSE, glm::value_ptr(train.transform));
-
-            // Each mesh selects its own material texture in Mesh::draw().
             train.draw(modelShader);
         }
 
