@@ -24,3 +24,16 @@ the camera as its listener, so volume falls off naturally when the camera moves
 away. Build with OpenAL development headers and link the OpenAL library to
 enable sound; a build without OpenAL still loads all train packages and reports
 that sound is disabled.
+
+## Track builder
+
+Press `H` to enter the track builder, `I` for straight track, and `J` for a
+curve. Clicking near either endpoint of existing track snaps the new track's
+starting point and tangent to that endpoint. A straight track must remain
+within 5° of that tangent; connecting two existing endpoints with the straight
+tool is intentionally ignored. Curves are limited to a 20 m minimum radius and
+90° maximum turn, preventing unrealistically sharp geometry.
+
+Pressing `Esc` saves all placed rail segments to `maps/latest_track_map.json`.
+The human-readable JSON file is versioned and stores each segment's endpoints,
+initial heading, curvature, and length; a later save replaces the previous map.
