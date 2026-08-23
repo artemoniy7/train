@@ -21,6 +21,7 @@
 #include <fstream>
 #include <optional>
 #include <cstdint>
+#include <cmath>
 #include "json.hpp"
 
 #if __has_include(<AL/al.h>) && __has_include(<AL/alc.h>)
@@ -154,6 +155,14 @@ struct Model {
     glm::mat4 sourceTransform = glm::mat4(1.0f);
     std::map<std::string, glm::vec3> markers;
     glm::vec3 position = glm::vec3(0.0f);
+    glm::vec3 routeStart = glm::vec3(0.0f);
+    glm::vec3 routeEnd = glm::vec3(0.0f);
+    glm::vec3 routeDirection = glm::vec3(0.0f, 0.0f, 1.0f);
+    float routeDistance = 0.0f;
+    float routePosition = 0.0f;
+    float routeVelocity = 0.0f;
+    float motionDirection = 1.0f;
+    float engineThrottle = 0.0f;
     float scale = 0.5f;
     unsigned int engineSoundSource = 0;
     unsigned int engineSoundBuffer = 0;
@@ -254,9 +263,9 @@ public:
         alGenSources(1, &source);
         alSourcei(source, AL_BUFFER, buffer);
         alSourcei(source, AL_LOOPING, AL_TRUE);
-        alSourcef(source, AL_REFERENCE_DISTANCE, 3.0f);
-        alSourcef(source, AL_MAX_DISTANCE, 80.0f);
-        alSourcef(source, AL_ROLLOFF_FACTOR, 1.2f);
+        alSourcef(source, AL_REFERENCE_DISTANCE, 4.0f);
+        alSourcef(source, AL_MAX_DISTANCE, 90.0f);
+        alSourcef(source, AL_ROLLOFF_FACTOR, 1.6f);
         train.engineSoundBuffer = buffer;
         train.engineSoundSource = source;
         updateSource(train);
@@ -274,6 +283,24 @@ public:
         if (train.engineSoundSource != 0) {
             alSource3f(train.engineSoundSource, AL_POSITION, train.position.x, train.position.y, train.position.z);
         }
+    }
+
+    void updateEngine(const Model& train, const glm::vec3& listenerPosition) const {
+        if (train.engineSoundSource == 0) return;
+
+        updateSource(train);
+        const float distance = glm::length(listenerPosition - train.position);
+        const float fadeStart = 60.0f;
+        const float fadeEnd = 90.0f;
+        const float distanceGain = distance >= fadeEnd ? 0.0f
+            : (distance <= fadeStart ? 1.0f : (fadeEnd - distance) / (fadeEnd - fadeStart));
+        const float maxSpeedMs = train.maxSpeedKmh > 0.0f ? train.maxSpeedKmh / 3.6f : 20.0f;
+        const float speedFactor = std::clamp(std::abs(train.routeVelocity) / maxSpeedMs, 0.0f, 1.0f);
+        const float throttleFactor = std::clamp(train.engineThrottle, 0.0f, 1.0f);
+        const float gain = distanceGain * (0.25f + 0.75f * std::max(speedFactor, throttleFactor));
+        const float pitch = 0.85f + 0.25f * speedFactor + 0.40f * throttleFactor;
+        alSourcef(train.engineSoundSource, AL_GAIN, gain);
+        alSourcef(train.engineSoundSource, AL_PITCH, pitch);
     }
 
     void release(Model& train) const {
@@ -355,6 +382,7 @@ public:
     bool startLoopingEngine(Model&, const fs::path&) { return false; }
     void updateListener(const glm::vec3&, const glm::vec3&, const glm::vec3&) {}
     void updateSource(const Model&) const {}
+    void updateEngine(const Model&, const glm::vec3&) const {}
     void release(Model&) const {}
     void shutdown() {}
 };
@@ -834,6 +862,41 @@ std::vector<fs::path> findTrainModelPaths() {
     return modelPaths;
 }
 
+void updateTrainMotion(Model& train, float dt) {
+    if (train.routeDistance <= 0.0f || dt <= 0.0f) return;
+
+    const float fallbackMaxSpeed = 12.0f;
+    const float maxSpeed = train.maxSpeedKmh > 0.0f ? train.maxSpeedKmh / 3.6f : fallbackMaxSpeed;
+    const float acceleration = train.accelerationMs2 > 0.0f ? train.accelerationMs2 : 0.5f;
+    const float brakeDeceleration = train.brakeDecelerationMs2 > 0.0f ? train.brakeDecelerationMs2 : acceleration;
+    const float targetPosition = train.motionDirection > 0.0f ? train.routeDistance : 0.0f;
+    const float distanceToTarget = std::abs(targetPosition - train.routePosition);
+    const float stoppingDistance = (train.routeVelocity * train.routeVelocity) / (2.0f * brakeDeceleration);
+
+    float signedAcceleration = 0.0f;
+    if (distanceToTarget <= 0.02f && std::abs(train.routeVelocity) < 0.05f) {
+        train.routePosition = targetPosition;
+        train.routeVelocity = 0.0f;
+        train.motionDirection *= -1.0f;
+    } else if (stoppingDistance >= distanceToTarget) {
+        signedAcceleration = -brakeDeceleration * train.motionDirection;
+    } else if (std::abs(train.routeVelocity) < maxSpeed) {
+        signedAcceleration = acceleration * train.motionDirection;
+    }
+
+    train.routeVelocity += signedAcceleration * dt;
+    if (train.routeVelocity * train.motionDirection < 0.0f) train.routeVelocity = 0.0f;
+    train.routeVelocity = std::clamp(train.routeVelocity, -maxSpeed, maxSpeed);
+    train.routePosition = std::clamp(train.routePosition + train.routeVelocity * dt, 0.0f, train.routeDistance);
+    train.engineThrottle = signedAcceleration * train.motionDirection > 0.0f ? 1.0f
+        : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
+
+    train.position = train.routeStart + train.routeDirection * train.routePosition;
+    train.transform = glm::translate(glm::mat4(1.0f), train.position);
+    train.transform = glm::scale(train.transform, glm::vec3(train.scale));
+    train.transform *= train.sourceTransform;
+}
+
 int main() {
     // Инициализация GLFW
     glfwInit();
@@ -931,7 +994,15 @@ int main() {
             const glm::vec3 pivotBack = train.markers.count("pivot_back")
                 ? train.markers["pivot_back"] : glm::vec3(0.0f);
             const float lineHeight = trackSegments.empty() ? 0.0f : trackSegments.front().start.y;
-            train.position = glm::vec3(0.0f, lineHeight - assetScale * pivotBack.y, 0.0f);
+            train.routeStart = trackSegments.empty() ? glm::vec3(0.0f) : trackSegments.front().start;
+            train.routeEnd = trackSegments.size() > 1 ? trackSegments[trackSegments.size() - 2].end
+                : (trackSegments.empty() ? glm::vec3(0.0f, 0.0f, trackPieceLength) : trackSegments.back().end);
+            train.routeStart.y = lineHeight - assetScale * pivotBack.y;
+            train.routeEnd.y = train.routeStart.y;
+            train.routeDistance = glm::length(train.routeEnd - train.routeStart);
+            train.routeDirection = train.routeDistance > 0.0f ? glm::normalize(train.routeEnd - train.routeStart) : glm::vec3(0.0f, 0.0f, 1.0f);
+            train.routePosition = 0.0f;
+            train.position = train.routeStart;
             train.transform = glm::translate(glm::mat4(1.0f), train.position);
             train.scale = assetScale;
             train.transform = glm::scale(train.transform, glm::vec3(train.scale));
@@ -994,6 +1065,10 @@ int main() {
 
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         trainAudio.updateListener(cameraPos, cameraFront, cameraUp);
+        for (auto& train : trains) {
+            updateTrainMotion(train, deltaTime);
+            trainAudio.updateEngine(train, cameraPos);
+        }
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 
         // === РИСУЕМ ПЛОСКОСТЬ ===
