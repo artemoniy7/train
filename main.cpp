@@ -18,6 +18,18 @@
 #include <cstring>
 #include <functional>
 #include <cctype>
+#include <fstream>
+#include <optional>
+#include <cstdint>
+#include "json.hpp"
+
+#if __has_include(<AL/al.h>) && __has_include(<AL/alc.h>)
+#include <AL/al.h>
+#include <AL/alc.h>
+#define TRAIN_SIM_HAS_OPENAL 1
+#else
+#define TRAIN_SIM_HAS_OPENAL 0
+#endif
 
 namespace fs = std::filesystem;
 
@@ -124,6 +136,16 @@ struct Mesh {
 // Структура для модели
 struct Model {
     std::string name;
+    std::string description;
+    std::string type;
+    float weightTonnes = 0.0f;
+    float maxSpeedKmh = 0.0f;
+    float accelerationMs2 = 0.0f;
+    float brakeDecelerationMs2 = 0.0f;
+    float enginePowerKw = 0.0f;
+    float tractionForceKn = 0.0f;
+    float fuelCapacityL = 0.0f;
+    float fuelConsumptionLPerKm = 0.0f;
     std::vector<Mesh> meshes;
     glm::mat4 transform = glm::mat4(1.0f);
     // Transform of the mesh node in the source glTF.  The track mesh is
@@ -133,6 +155,8 @@ struct Model {
     std::map<std::string, glm::vec3> markers;
     glm::vec3 position = glm::vec3(0.0f);
     float scale = 0.5f;
+    unsigned int engineSoundSource = 0;
+    unsigned int engineSoundBuffer = 0;
 
     void draw(unsigned int shaderProgram) {
         for (auto& mesh : meshes) {
@@ -148,6 +172,193 @@ struct Model {
 };
 
 std::vector<Model> trains;
+
+struct TrainConfiguration {
+    std::string name;
+    std::string type;
+    std::string description;
+    float weightTonnes = 0.0f;
+    float maxSpeedKmh = 0.0f;
+    float accelerationMs2 = 0.0f;
+    float brakeDecelerationMs2 = 0.0f;
+    float enginePowerKw = 0.0f;
+    float tractionForceKn = 0.0f;
+    float fuelCapacityL = 0.0f;
+    float fuelConsumptionLPerKm = 0.0f;
+    std::string engineSound;
+};
+
+// A configuration lives next to a model so every train folder is self-contained.
+// Keep the historic `confg.json` spelling as a supported alias for existing assets.
+std::optional<TrainConfiguration> loadTrainConfiguration(const fs::path& trainDirectory) {
+    const fs::path configPath = fs::exists(trainDirectory / "config.json")
+        ? trainDirectory / "config.json" : trainDirectory / "confg.json";
+    if (!fs::exists(configPath)) {
+        return std::nullopt;
+    }
+
+    try {
+        std::ifstream input(configPath);
+        nlohmann::json json;
+        input >> json;
+        TrainConfiguration config;
+        config.name = json.value("name", trainDirectory.filename().string());
+        config.type = json.value("type", "");
+        config.description = json.value("description", "");
+        const auto& physical = json.value("physical", nlohmann::json::object());
+        config.weightTonnes = physical.value("weight_tonnes", 0.0f);
+        config.maxSpeedKmh = physical.value("max_speed_kmh", 0.0f);
+        config.accelerationMs2 = physical.value("acceleration_ms2", 0.0f);
+        config.brakeDecelerationMs2 = physical.value("brake_deceleration_ms2", 0.0f);
+        const auto& technical = json.value("technical", nlohmann::json::object());
+        config.enginePowerKw = technical.value("engine_power_kw", 0.0f);
+        config.tractionForceKn = technical.value("traction_force_kn", 0.0f);
+        config.fuelCapacityL = technical.value("fuel_capacity_l", 0.0f);
+        config.fuelConsumptionLPerKm = technical.value("fuel_consumption_l_per_km", 0.0f);
+        const auto& visual = json.value("visual", nlohmann::json::object());
+        config.engineSound = visual.value("engine_sound", "");
+        return config;
+    } catch (const std::exception& error) {
+        std::cout << "Cannot read train configuration " << configPath << ": "
+                  << error.what() << std::endl;
+        return std::nullopt;
+    }
+}
+
+#if TRAIN_SIM_HAS_OPENAL
+class TrainAudioSystem {
+public:
+    bool initialize() {
+        device = alcOpenDevice(nullptr);
+        if (!device || !(context = alcCreateContext(device, nullptr)) || !alcMakeContextCurrent(context)) {
+            std::cout << "OpenAL is unavailable; train sounds are disabled" << std::endl;
+            shutdown();
+            return false;
+        }
+        alDistanceModel(AL_INVERSE_DISTANCE_CLAMPED);
+        alListenerf(AL_GAIN, 1.0f);
+        return true;
+    }
+
+    bool startLoopingEngine(Model& train, const fs::path& soundPath) {
+        std::vector<char> pcm;
+        ALenum format;
+        ALsizei sampleRate;
+        if (!readWave(soundPath, pcm, format, sampleRate)) {
+            std::cout << "Cannot load engine WAV: " << soundPath << std::endl;
+            return false;
+        }
+        ALuint buffer = 0, source = 0;
+        alGenBuffers(1, &buffer);
+        alBufferData(buffer, format, pcm.data(), static_cast<ALsizei>(pcm.size()), sampleRate);
+        alGenSources(1, &source);
+        alSourcei(source, AL_BUFFER, buffer);
+        alSourcei(source, AL_LOOPING, AL_TRUE);
+        alSourcef(source, AL_REFERENCE_DISTANCE, 3.0f);
+        alSourcef(source, AL_MAX_DISTANCE, 80.0f);
+        alSourcef(source, AL_ROLLOFF_FACTOR, 1.2f);
+        train.engineSoundBuffer = buffer;
+        train.engineSoundSource = source;
+        updateSource(train);
+        alSourcePlay(source);
+        return true;
+    }
+
+    void updateListener(const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up) {
+        alListener3f(AL_POSITION, position.x, position.y, position.z);
+        const float orientation[] = {forward.x, forward.y, forward.z, up.x, up.y, up.z};
+        alListenerfv(AL_ORIENTATION, orientation);
+    }
+
+    void updateSource(const Model& train) const {
+        if (train.engineSoundSource != 0) {
+            alSource3f(train.engineSoundSource, AL_POSITION, train.position.x, train.position.y, train.position.z);
+        }
+    }
+
+    void release(Model& train) const {
+        if (train.engineSoundSource != 0) alDeleteSources(1, &train.engineSoundSource);
+        if (train.engineSoundBuffer != 0) alDeleteBuffers(1, &train.engineSoundBuffer);
+        train.engineSoundSource = train.engineSoundBuffer = 0;
+    }
+
+    void shutdown() {
+        if (context) { alcMakeContextCurrent(nullptr); alcDestroyContext(context); context = nullptr; }
+        if (device) { alcCloseDevice(device); device = nullptr; }
+    }
+
+private:
+    ALCdevice* device = nullptr;
+    ALCcontext* context = nullptr;
+
+    static uint32_t readU32(const char* value) {
+        return static_cast<unsigned char>(value[0]) | (static_cast<uint32_t>(static_cast<unsigned char>(value[1])) << 8) |
+               (static_cast<uint32_t>(static_cast<unsigned char>(value[2])) << 16) | (static_cast<uint32_t>(static_cast<unsigned char>(value[3])) << 24);
+    }
+    static uint16_t readU16(const char* value) { return static_cast<unsigned char>(value[0]) | (static_cast<uint16_t>(static_cast<unsigned char>(value[1])) << 8); }
+
+    static bool readWave(const fs::path& path, std::vector<char>& pcm, ALenum& format, ALsizei& sampleRate) {
+        std::ifstream input(path, std::ios::binary);
+        char header[12];
+        if (!input.read(header, sizeof(header)) || std::memcmp(header, "RIFF", 4) != 0 || std::memcmp(header + 8, "WAVE", 4) != 0) return false;
+        uint16_t channels = 0, bitsPerSample = 0, encoding = 0;
+        while (input) {
+            char chunk[8];
+            if (!input.read(chunk, sizeof(chunk))) break;
+            const uint32_t size = readU32(chunk + 4);
+            if (std::memcmp(chunk, "fmt ", 4) == 0) {
+                std::vector<char> fmt(size);
+                if (size < 16 || !input.read(fmt.data(), size)) return false;
+                encoding = readU16(fmt.data()); channels = readU16(fmt.data() + 2);
+                sampleRate = static_cast<ALsizei>(readU32(fmt.data() + 4)); bitsPerSample = readU16(fmt.data() + 14);
+            } else if (std::memcmp(chunk, "data", 4) == 0) {
+                pcm.resize(size);
+                if (!input.read(pcm.data(), size)) return false;
+                break;
+            } else input.seekg(size + (size & 1), std::ios::cur);
+        }
+        if (encoding != 1 || pcm.empty() || (channels != 1 && channels != 2)) return false;
+        // OpenAL only spatializes mono buffers.  Downmix supplied stereo idle
+        // recordings so the source really belongs to the locomotive and is
+        // attenuated as the camera moves away.
+        if (bitsPerSample == 8 && channels == 2) {
+            std::vector<char> mono(pcm.size() / 2);
+            for (size_t i = 0; i < mono.size(); ++i) {
+                const unsigned int left = static_cast<unsigned char>(pcm[i * 2]);
+                const unsigned int right = static_cast<unsigned char>(pcm[i * 2 + 1]);
+                mono[i] = static_cast<char>((left + right) / 2);
+            }
+            pcm = std::move(mono);
+            channels = 1;
+        } else if (bitsPerSample == 16 && channels == 2) {
+            std::vector<char> mono(pcm.size() / 2);
+            for (size_t i = 0; i < mono.size() / 2; ++i) {
+                int16_t left, right;
+                std::memcpy(&left, pcm.data() + i * 4, sizeof(left));
+                std::memcpy(&right, pcm.data() + i * 4 + sizeof(right), sizeof(right));
+                const int16_t mixed = static_cast<int16_t>((static_cast<int>(left) + static_cast<int>(right)) / 2);
+                std::memcpy(mono.data() + i * 2, &mixed, sizeof(mixed));
+            }
+            pcm = std::move(mono);
+            channels = 1;
+        }
+        if (channels == 1 && bitsPerSample == 8) format = AL_FORMAT_MONO8;
+        else if (channels == 1 && bitsPerSample == 16) format = AL_FORMAT_MONO16;
+        else return false;
+        return true;
+    }
+};
+#else
+class TrainAudioSystem {
+public:
+    bool initialize() { std::cout << "Train sounds require an OpenAL-enabled build" << std::endl; return false; }
+    bool startLoopingEngine(Model&, const fs::path&) { return false; }
+    void updateListener(const glm::vec3&, const glm::vec3&, const glm::vec3&) {}
+    void updateSource(const Model&) const {}
+    void release(Model&) const {}
+    void shutdown() {}
+};
+#endif
 
 struct TrackSegment {
     glm::mat4 transform;
@@ -596,10 +807,12 @@ void drawPlane() {
     glBindVertexArray(0);
 }
 
-// Функция поиска модели
-std::string findModelPath() {
+// Finds every train model, rather than choosing whichever directory happens to
+// be returned first by the filesystem.
+std::vector<fs::path> findTrainModelPaths() {
+    std::vector<fs::path> modelPaths;
     if (!fs::exists("trains")) {
-        return "";
+        return modelPaths;
     }
 
     for (const auto& entry : fs::directory_iterator("trains")) {
@@ -611,13 +824,14 @@ std::string findModelPath() {
                     for (char& c : extLower) c = std::tolower(c);
 
                     if (extLower == ".glb" || extLower == ".gltf" || extLower == ".obj") {
-                        return fileEntry.path().string();
+                        modelPaths.push_back(fileEntry.path());
                     }
                 }
             }
         }
     }
-    return "";
+    std::sort(modelPaths.begin(), modelPaths.end());
+    return modelPaths;
 }
 
 int main() {
@@ -647,6 +861,9 @@ int main() {
     glEnable(GL_DEPTH_TEST);
     //glEnable(GL_CULL_FACE);
     glClearColor(0.53f, 0.81f, 0.92f, 1.0f);
+
+    TrainAudioSystem trainAudio;
+    const bool audioAvailable = trainAudio.initialize();
 
     // Создаем шейдеры
     unsigned int modelShader = createShaderProgram(modelVertexShader, modelFragmentShader);
@@ -682,15 +899,33 @@ int main() {
                   << " m (" << trackSegments.size() << " connected pieces)" << std::endl;
     }
 
-    // Загружаем модель
-    std::string modelPath = findModelPath();
+    // Each directory below trains/ is an independent train package.  Its model,
+    // configuration and sound are therefore applied to all loaded locomotives.
+    const std::vector<fs::path> modelPaths = findTrainModelPaths();
+    if (!modelPaths.empty()) {
+        for (const fs::path& modelPath : modelPaths) {
+            const fs::path trainDirectory = modelPath.parent_path();
+            const auto configuration = loadTrainConfiguration(trainDirectory);
+            const std::string trainName = configuration ? configuration->name : trainDirectory.filename().string();
+            std::cout << "Loading model from: " << modelPath << std::endl;
+            Model train = loadModel(modelPath.string(), trainName);
 
-    if (!modelPath.empty()) {
-        std::string trainName = fs::path(modelPath).parent_path().filename().string();
-        std::cout << "Loading model from: " << modelPath << std::endl;
-        Model train = loadModel(modelPath, trainName);
-
-        if (!train.meshes.empty()) {
+            if (train.meshes.empty()) continue;
+            if (configuration) {
+                train.type = configuration->type;
+                train.description = configuration->description;
+                train.weightTonnes = configuration->weightTonnes;
+                train.maxSpeedKmh = configuration->maxSpeedKmh;
+                train.accelerationMs2 = configuration->accelerationMs2;
+                train.brakeDecelerationMs2 = configuration->brakeDecelerationMs2;
+                train.enginePowerKw = configuration->enginePowerKw;
+                train.tractionForceKn = configuration->tractionForceKn;
+                train.fuelCapacityL = configuration->fuelCapacityL;
+                train.fuelConsumptionLPerKm = configuration->fuelConsumptionLPerKm;
+                std::cout << "  Configuration: " << configuration->type << ", "
+                          << configuration->weightTonnes << " t, maximum "
+                          << configuration->maxSpeedKmh << " km/h" << std::endl;
+            }
             // Put the locomotive onto the route by matching its Pivot_back to
             // the straight line defined by the rail endpoint markers.
             const glm::vec3 pivotBack = train.markers.count("pivot_back")
@@ -701,15 +936,20 @@ int main() {
             train.scale = assetScale;
             train.transform = glm::scale(train.transform, glm::vec3(train.scale));
             train.transform *= train.sourceTransform;
-            trains.push_back(train);
+            if (audioAvailable && configuration && !configuration->engineSound.empty()) {
+                const fs::path soundPath = trainDirectory / "sounds" / configuration->engineSound;
+                trainAudio.startLoopingEngine(train, soundPath);
+            }
+            trains.push_back(std::move(train));
             std::cout << "✓ Successfully loaded textured train on the track: " << trainName << std::endl;
 
             // Выводим информацию о текстурах
-            for (size_t i = 0; i < train.meshes.size(); i++) {
-                std::cout << "  Mesh " << i << " has " << train.meshes[i].textures.size() << " textures" << std::endl;
-                for (size_t j = 0; j < train.meshes[i].textures.size(); j++) {
-                    std::cout << "    Texture " << j << ": " << train.meshes[i].textures[j].type
-                              << " ID=" << train.meshes[i].textures[j].id << std::endl;
+            const Model& loadedTrain = trains.back();
+            for (size_t i = 0; i < loadedTrain.meshes.size(); i++) {
+                std::cout << "  Mesh " << i << " has " << loadedTrain.meshes[i].textures.size() << " textures" << std::endl;
+                for (size_t j = 0; j < loadedTrain.meshes[i].textures.size(); j++) {
+                    std::cout << "    Texture " << j << ": " << loadedTrain.meshes[i].textures[j].type
+                              << " ID=" << loadedTrain.meshes[i].textures[j].id << std::endl;
                 }
             }
         }
@@ -753,6 +993,7 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+        trainAudio.updateListener(cameraPos, cameraFront, cameraUp);
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 
         // === РИСУЕМ ПЛОСКОСТЬ ===
@@ -792,8 +1033,10 @@ int main() {
 
     // Очистка
     for (auto& train : trains) {
+        trainAudio.release(train);
         train.cleanup();
     }
+    trainAudio.shutdown();
     rail.cleanup();
     glDeleteVertexArrays(1, &planeVAO);
     glDeleteBuffers(1, &planeVBO);
