@@ -1,0 +1,30 @@
+{
+    "name": "TEM2",
+    "type": "diesel_locomotive",
+    "description": "Тепловоз ТЭМ2",
+    
+    "physical": {
+        "weight_tonnes": 120.0,
+        "max_speed_kmh": 100.0,
+        "acceleration_ms2": 0.5,
+        "brake_deceleration_ms2": 0.8
+    },
+    
+    "technical": {
+        "engine_power_kw": 1200,
+        "traction_force_kn": 200,
+        "fuel_capacity_l": 5000,
+        "fuel_consumption_l_per_km": 15.0
+    },
+    
+    "visual": {
+        "engine_sound": "engine.wav"
+    },
+    
+    "couplers": {
+        "front_type": "SA3",
+        "rear_type": "SA3",
+        "max_tension_kn": 800,
+        "max_compression_kn": 600
+    }
+}
