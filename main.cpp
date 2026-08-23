@@ -494,7 +494,8 @@ struct TrackSegment {
     glm::mat4 transform;
     glm::vec3 start;
     glm::vec3 end;
-    glm::vec3 direction;
+    float startHeadingRadians = 0.0f;
+    float curvatureRadiansPerMeter = 0.0f;
     float length = 0.0f;
     float distanceFromRouteStart = 0.0f;
 };
@@ -974,14 +975,32 @@ RouteSample sampleTrackRoute(float routePosition) {
         const float segmentEndDistance = segment.distanceFromRouteStart + segment.length;
         if (clampedPosition <= segmentEndDistance) {
             const float localDistance = clampedPosition - segment.distanceFromRouteStart;
+            const float heading = segment.startHeadingRadians +
+                segment.curvatureRadiansPerMeter * localDistance;
+            glm::vec3 position;
+
+            if (std::abs(segment.curvatureRadiansPerMeter) < 0.000001f) {
+                position = segment.start + glm::vec3(
+                    std::sin(segment.startHeadingRadians), 0.0f,
+                    std::cos(segment.startHeadingRadians)) * localDistance;
+            } else {
+                const float inverseCurvature = 1.0f / segment.curvatureRadiansPerMeter;
+                position = segment.start + glm::vec3(
+                    (std::cos(segment.startHeadingRadians) - std::cos(heading)) * inverseCurvature,
+                    0.0f,
+                    (std::sin(heading) - std::sin(segment.startHeadingRadians)) * inverseCurvature);
+            }
+
             return {
-                segment.start + segment.direction * localDistance,
-                segment.direction
+                position,
+                glm::vec3(std::sin(heading), 0.0f, std::cos(heading))
             };
         }
     }
 
-    return {lastSegment.end, lastSegment.direction};
+    const float lastHeading = lastSegment.startHeadingRadians +
+        lastSegment.curvatureRadiansPerMeter * lastSegment.length;
+    return {lastSegment.end, glm::vec3(std::sin(lastHeading), 0.0f, std::cos(lastHeading))};
 }
 
 glm::mat4 createTrackAlignedTransform(
@@ -1038,7 +1057,7 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
     if (jointSoundBuffer == 0 || jointSoundDurationSeconds <= 0.0f) return;
 
     audioSystem.cleanupStoppedSources(activeJointSoundSources);
-    
+
     for (const Model& train : trains) {
         if (train.routeDistance <= 0.0f || train.previousRoutePosition == train.routePosition) continue;
 
@@ -1046,12 +1065,12 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
         const float to = std::max(train.previousRoutePosition, train.routePosition);
         const float speedMs = std::abs(train.routeVelocity);
         const float speedKmh = speedMs * 3.6f;
-        
+
         for (const TrackJointSound& joint : trackJointSounds) {
             if (joint.routePosition < from || joint.routePosition > to) continue;
 
             // РЕАЛИСТИЧНЫЙ ЗВУК СТЫКОВ
-            
+
             // 1. Громкость: растет со скоростью, но с насыщением
             float volume = 0.0f;
             if (speedKmh < 5.0f) {
@@ -1062,21 +1081,21 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
                 volume = 0.9f;
             }
             volume = std::clamp(volume, 0.0f, 1.0f);
-            
+
             // 2. Pitch: почти не меняется
             float pitch = 1.0f;
-            
+
             // 3. Случайность
             static unsigned int seed = 12345;
             seed = (seed * 1103515245 + 12345) & 0x7fffffff;
             float randomFactor = 0.85f + (seed % 30) / 100.0f;
             pitch *= randomFactor;
-            
+
             // 4. Эффект Доплера
             if (speedKmh > 50.0f) {
                 pitch += (speedKmh - 50.0f) / 200.0f * 0.05f;
             }
-            
+
             // Воспроизводим основной звук
             activeJointSoundSources.push_back(
                 audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch, volume)
@@ -1125,7 +1144,7 @@ int main() {
     constexpr float trackPieceLength = 5.0f;
     constexpr float assetScale = 0.5f;
     Model rail = loadModel("rails/5m_track.glb", "5m_track");
-    
+
     if (rail.meshes.empty() || rail.markers.count("track_start") == 0 ||
         rail.markers.count("track_end") == 0) {
         std::cout << "Rail model or its markers were not found" << std::endl;
@@ -1133,34 +1152,52 @@ int main() {
         glm::vec3 cursor(0.0f, 0.0f, 0.0f);
         float headingRadians = 0.0f;
         float routeDistance = 0.0f;
-        const float turnRate = 0.04f;
-        int curveStart = 30;
-        int curveEnd = 70;
+        const float turnRadiansPerPiece = 0.04f;
+        const int curveStart = 30;
+        const int curveEnd = 70;
 
         for (int i = 0; i < trackPieceCount; ++i) {
-            float headingDelta = 0.0f;
-            if (i >= curveStart && i < curveEnd) {
-                headingDelta = turnRate;
-            }
-            
-            const glm::vec3 direction(std::sin(headingRadians), 0.0f, std::cos(headingRadians));
+            const float curvature = (i >= curveStart && i < curveEnd)
+                ? turnRadiansPerPiece / trackPieceLength : 0.0f;
+            const float endHeadingRadians = headingRadians + curvature * trackPieceLength;
+            const float midpointHeadingRadians = (headingRadians + endHeadingRadians) * 0.5f;
             const glm::vec3 start = cursor;
-            const glm::vec3 end = start + direction * trackPieceLength;
-            const glm::vec3 center = start + direction * (0.5f * trackPieceLength);
-            const glm::mat4 instanceTransform = createTrackAlignedTransform(center, direction, assetScale);
-            
+            glm::vec3 end;
+            glm::vec3 center;
+
+            if (curvature == 0.0f) {
+                const glm::vec3 direction(std::sin(headingRadians), 0.0f, std::cos(headingRadians));
+                end = start + direction * trackPieceLength;
+                center = start + direction * (0.5f * trackPieceLength);
+            } else {
+                const float inverseCurvature = 1.0f / curvature;
+                end = start + glm::vec3(
+                    (std::cos(headingRadians) - std::cos(endHeadingRadians)) * inverseCurvature,
+                    0.0f,
+                    (std::sin(endHeadingRadians) - std::sin(headingRadians)) * inverseCurvature);
+                center = start + glm::vec3(
+                    (std::cos(headingRadians) - std::cos(midpointHeadingRadians)) * inverseCurvature,
+                    0.0f,
+                    (std::sin(midpointHeadingRadians) - std::sin(headingRadians)) * inverseCurvature);
+            }
+
+            const glm::vec3 midpointDirection(
+                std::sin(midpointHeadingRadians), 0.0f, std::cos(midpointHeadingRadians));
+            const glm::mat4 instanceTransform = createTrackAlignedTransform(center, midpointDirection, assetScale);
+
             trackSegments.push_back({
                 instanceTransform,
                 start,
                 end,
-                direction,
+                headingRadians,
+                curvature,
                 trackPieceLength,
                 routeDistance
             });
-            
+
             cursor = end;
             routeDistance += trackPieceLength;
-            headingRadians += headingDelta;
+            headingRadians = endHeadingRadians;
         }
 
         std::cout << "Built test track: " << routeDistance
@@ -1211,7 +1248,7 @@ int main() {
                           << configuration->weightTonnes << " t, maximum "
                           << configuration->maxSpeedKmh << " km/h" << std::endl;
             }
-            
+
             const glm::vec3 pivotBack = train.markers.count("pivot_back")
                 ? train.markers["pivot_back"] : glm::vec3(0.0f);
             const float lineHeight = trackSegments.empty() ? 0.0f : trackSegments.front().start.y;
@@ -1225,7 +1262,7 @@ int main() {
                 : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
             train.routePosition = 0.0f;
             train.previousRoutePosition = train.routePosition;
-            
+
             const RouteSample initialSample = sampleTrackRoute(train.routePosition);
             train.routeDirection = initialSample.direction;
             train.position = initialSample.position;
@@ -1233,7 +1270,7 @@ int main() {
             train.scale = assetScale;
             train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
             train.transform *= train.sourceTransform;
-            
+
             if (audioAvailable && configuration && !configuration->engineSound.empty()) {
                 const fs::path soundPath = trainDirectory / "sounds" / configuration->engineSound;
                 trainAudio.startLoopingEngine(train, soundPath);
@@ -1281,13 +1318,13 @@ int main() {
 
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         trainAudio.updateListener(cameraPos, cameraFront, cameraUp);
-        
+
         for (auto& train : trains) {
             updateTrainMotion(train, deltaTime);
             trainAudio.updateEngine(train, cameraPos);
         }
         updateTrackJointSounds(trainAudio);
-        
+
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 800.0f);
 
         // Плоскость
