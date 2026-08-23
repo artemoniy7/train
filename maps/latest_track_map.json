@@ -1,0 +1,2736 @@
+{
+  "format": "train-simulator-track-map",
+  "segments": [
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        5.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        10.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        5.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        15.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        10.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        20.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        15.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        25.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        20.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        30.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        25.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        35.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        30.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        40.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        35.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        45.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        40.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        50.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        45.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        55.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        50.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        60.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        55.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        65.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        60.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        70.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        65.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        75.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        70.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        80.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        75.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        85.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        80.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        90.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        85.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        95.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        90.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        100.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        95.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        105.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        100.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        110.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        105.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        115.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        110.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        120.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        115.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        125.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        120.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        130.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        125.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        135.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        130.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        140.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        135.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        145.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        140.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        0.0,
+        0.0,
+        150.0
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        145.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        0.09998679906129837,
+        0.0,
+        154.99867248535156
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.0,
+        0.0,
+        150.0
+      ],
+      "start_heading_radians": 0.0
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        0.39978328347206116,
+        0.0,
+        159.98934936523438
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.09998679906129837,
+        0.0,
+        154.99867248535156
+      ],
+      "start_heading_radians": 0.03999999910593033
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        0.8989200592041016,
+        0.0,
+        164.9640350341797
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.39978328347206116,
+        0.0,
+        159.98934936523438
+      ],
+      "start_heading_radians": 0.07999999821186066
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        1.5965924263000488,
+        0.0,
+        169.91477966308594
+      ],
+      "length_meters": 5.0,
+      "start": [
+        0.8989200592041016,
+        0.0,
+        164.9640350341797
+      ],
+      "start_heading_radians": 0.11999999731779099
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        2.49167537689209,
+        0.0,
+        174.8336639404297
+      ],
+      "length_meters": 5.0,
+      "start": [
+        1.5965924263000488,
+        0.0,
+        169.91477966308594
+      ],
+      "start_heading_radians": 0.1599999964237213
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        3.5827534198760986,
+        0.0,
+        179.71282958984375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        2.49167537689209,
+        0.0,
+        174.8336639404297
+      ],
+      "start_heading_radians": 0.19999998807907104
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        4.868068218231201,
+        0.0,
+        184.54446411132813
+      ],
+      "length_meters": 5.0,
+      "start": [
+        3.5827534198760986,
+        0.0,
+        179.71282958984375
+      ],
+      "start_heading_radians": 0.23999997973442078
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        6.3455705642700195,
+        0.0,
+        189.32083129882813
+      ],
+      "length_meters": 5.0,
+      "start": [
+        4.868068218231201,
+        0.0,
+        184.54446411132813
+      ],
+      "start_heading_radians": 0.2799999713897705
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        8.012898445129395,
+        0.0,
+        194.03428649902344
+      ],
+      "length_meters": 5.0,
+      "start": [
+        6.3455705642700195,
+        0.0,
+        189.32083129882813
+      ],
+      "start_heading_radians": 0.31999996304512024
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        9.86737060546875,
+        0.0,
+        198.67730712890625
+      ],
+      "length_meters": 5.0,
+      "start": [
+        8.012898445129395,
+        0.0,
+        194.03428649902344
+      ],
+      "start_heading_radians": 0.35999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        11.906036376953125,
+        0.0,
+        203.24244689941406
+      ],
+      "length_meters": 5.0,
+      "start": [
+        9.86737060546875,
+        0.0,
+        198.67730712890625
+      ],
+      "start_heading_radians": 0.3999999463558197
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        14.125631332397461,
+        0.0,
+        207.722412109375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        11.906036376953125,
+        0.0,
+        203.24244689941406
+      ],
+      "start_heading_radians": 0.43999993801116943
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        16.522602081298828,
+        0.0,
+        212.1100311279297
+      ],
+      "length_meters": 5.0,
+      "start": [
+        14.125631332397461,
+        0.0,
+        207.722412109375
+      ],
+      "start_heading_radians": 0.47999992966651917
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        19.09310531616211,
+        0.0,
+        216.39828491210938
+      ],
+      "length_meters": 5.0,
+      "start": [
+        16.522602081298828,
+        0.0,
+        212.1100311279297
+      ],
+      "start_heading_radians": 0.5199999213218689
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        21.833049774169922,
+        0.0,
+        220.580322265625
+      ],
+      "length_meters": 5.0,
+      "start": [
+        19.09310531616211,
+        0.0,
+        216.39828491210938
+      ],
+      "start_heading_radians": 0.559999942779541
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        24.7380313873291,
+        0.0,
+        224.64944458007813
+      ],
+      "length_meters": 5.0,
+      "start": [
+        21.833049774169922,
+        0.0,
+        220.580322265625
+      ],
+      "start_heading_radians": 0.5999999642372131
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        27.803417205810547,
+        0.0,
+        228.59913635253906
+      ],
+      "length_meters": 5.0,
+      "start": [
+        24.7380313873291,
+        0.0,
+        224.64944458007813
+      ],
+      "start_heading_radians": 0.6399999856948853
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        31.024288177490234,
+        0.0,
+        232.423095703125
+      ],
+      "length_meters": 5.0,
+      "start": [
+        27.803417205810547,
+        0.0,
+        228.59913635253906
+      ],
+      "start_heading_radians": 0.6800000071525574
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        34.395503997802734,
+        0.0,
+        236.11520385742188
+      ],
+      "length_meters": 5.0,
+      "start": [
+        31.024288177490234,
+        0.0,
+        232.423095703125
+      ],
+      "start_heading_radians": 0.7200000286102295
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        37.91167068481445,
+        0.0,
+        239.66954040527344
+      ],
+      "length_meters": 5.0,
+      "start": [
+        34.395503997802734,
+        0.0,
+        236.11520385742188
+      ],
+      "start_heading_radians": 0.7600000500679016
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        41.56715774536133,
+        0.0,
+        243.08042907714844
+      ],
+      "length_meters": 5.0,
+      "start": [
+        37.91167068481445,
+        0.0,
+        239.66954040527344
+      ],
+      "start_heading_radians": 0.8000000715255737
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        45.35612106323242,
+        0.0,
+        246.34239196777344
+      ],
+      "length_meters": 5.0,
+      "start": [
+        41.56715774536133,
+        0.0,
+        243.08042907714844
+      ],
+      "start_heading_radians": 0.8400000929832458
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        49.27249526977539,
+        0.0,
+        249.4502410888672
+      ],
+      "length_meters": 5.0,
+      "start": [
+        45.35612106323242,
+        0.0,
+        246.34239196777344
+      ],
+      "start_heading_radians": 0.880000114440918
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        53.31001663208008,
+        0.0,
+        252.39898681640625
+      ],
+      "length_meters": 5.0,
+      "start": [
+        49.27249526977539,
+        0.0,
+        249.4502410888672
+      ],
+      "start_heading_radians": 0.9200001358985901
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        57.46222686767578,
+        0.0,
+        255.1839141845703
+      ],
+      "length_meters": 5.0,
+      "start": [
+        53.31001663208008,
+        0.0,
+        252.39898681640625
+      ],
+      "start_heading_radians": 0.9600001573562622
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        61.72248458862305,
+        0.0,
+        257.8005676269531
+      ],
+      "length_meters": 5.0,
+      "start": [
+        57.46222686767578,
+        0.0,
+        255.1839141845703
+      ],
+      "start_heading_radians": 1.0000001192092896
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        66.08396911621094,
+        0.0,
+        260.2447509765625
+      ],
+      "length_meters": 5.0,
+      "start": [
+        61.72248458862305,
+        0.0,
+        257.8005676269531
+      ],
+      "start_heading_radians": 1.040000081062317
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        70.53970336914063,
+        0.0,
+        262.5125732421875
+      ],
+      "length_meters": 5.0,
+      "start": [
+        66.08396911621094,
+        0.0,
+        260.2447509765625
+      ],
+      "start_heading_radians": 1.0800000429153442
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        75.08256530761719,
+        0.0,
+        264.60040283203125
+      ],
+      "length_meters": 5.0,
+      "start": [
+        70.53970336914063,
+        0.0,
+        262.5125732421875
+      ],
+      "start_heading_radians": 1.1200000047683716
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        79.70528411865234,
+        0.0,
+        266.5048828125
+      ],
+      "length_meters": 5.0,
+      "start": [
+        75.08256530761719,
+        0.0,
+        264.60040283203125
+      ],
+      "start_heading_radians": 1.159999966621399
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        84.40046691894531,
+        0.0,
+        268.2229919433594
+      ],
+      "length_meters": 5.0,
+      "start": [
+        79.70528411865234,
+        0.0,
+        266.5048828125
+      ],
+      "start_heading_radians": 1.1999999284744263
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        89.16059875488281,
+        0.0,
+        269.7519836425781
+      ],
+      "length_meters": 5.0,
+      "start": [
+        84.40046691894531,
+        0.0,
+        268.2229919433594
+      ],
+      "start_heading_radians": 1.2399998903274536
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        93.97806549072266,
+        0.0,
+        271.0893859863281
+      ],
+      "length_meters": 5.0,
+      "start": [
+        89.16059875488281,
+        0.0,
+        269.7519836425781
+      ],
+      "start_heading_radians": 1.279999852180481
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        98.84516143798828,
+        0.0,
+        272.2330627441406
+      ],
+      "length_meters": 5.0,
+      "start": [
+        93.97806549072266,
+        0.0,
+        271.0893859863281
+      ],
+      "start_heading_radians": 1.3199998140335083
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        103.75409698486328,
+        0.0,
+        273.18121337890625
+      ],
+      "length_meters": 5.0,
+      "start": [
+        98.84516143798828,
+        0.0,
+        272.2330627441406
+      ],
+      "start_heading_radians": 1.3599997758865356
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        108.697021484375,
+        0.0,
+        273.9322814941406
+      ],
+      "length_meters": 5.0,
+      "start": [
+        103.75409698486328,
+        0.0,
+        273.18121337890625
+      ],
+      "start_heading_radians": 1.399999737739563
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        113.66603088378906,
+        0.0,
+        274.485107421875
+      ],
+      "length_meters": 5.0,
+      "start": [
+        108.697021484375,
+        0.0,
+        273.9322814941406
+      ],
+      "start_heading_radians": 1.4399996995925903
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        118.65316772460938,
+        0.0,
+        274.8387756347656
+      ],
+      "length_meters": 5.0,
+      "start": [
+        113.66603088378906,
+        0.0,
+        274.485107421875
+      ],
+      "start_heading_radians": 1.4799996614456177
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        123.65045928955078,
+        0.0,
+        274.99273681640625
+      ],
+      "length_meters": 5.0,
+      "start": [
+        118.65316772460938,
+        0.0,
+        274.8387756347656
+      ],
+      "start_heading_radians": 1.519999623298645
+    },
+    {
+      "curvature_radians_per_meter": 0.007999999448657036,
+      "end": [
+        128.64990234375,
+        0.0,
+        274.94671630859375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        123.65045928955078,
+        0.0,
+        274.99273681640625
+      ],
+      "start_heading_radians": 1.5599995851516724
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        133.64776611328125,
+        0.0,
+        274.80072021484375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        128.64990234375,
+        0.0,
+        274.94671630859375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        138.6456298828125,
+        0.0,
+        274.65472412109375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        133.64776611328125,
+        0.0,
+        274.80072021484375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        143.64349365234375,
+        0.0,
+        274.50872802734375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        138.6456298828125,
+        0.0,
+        274.65472412109375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        148.641357421875,
+        0.0,
+        274.36273193359375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        143.64349365234375,
+        0.0,
+        274.50872802734375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        153.63922119140625,
+        0.0,
+        274.21673583984375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        148.641357421875,
+        0.0,
+        274.36273193359375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        158.6370849609375,
+        0.0,
+        274.07073974609375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        153.63922119140625,
+        0.0,
+        274.21673583984375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        163.63494873046875,
+        0.0,
+        273.92474365234375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        158.6370849609375,
+        0.0,
+        274.07073974609375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        168.6328125,
+        0.0,
+        273.77874755859375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        163.63494873046875,
+        0.0,
+        273.92474365234375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        173.63067626953125,
+        0.0,
+        273.63275146484375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        168.6328125,
+        0.0,
+        273.77874755859375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        178.6285400390625,
+        0.0,
+        273.48675537109375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        173.63067626953125,
+        0.0,
+        273.63275146484375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        183.62640380859375,
+        0.0,
+        273.34075927734375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        178.6285400390625,
+        0.0,
+        273.48675537109375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        188.624267578125,
+        0.0,
+        273.19476318359375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        183.62640380859375,
+        0.0,
+        273.34075927734375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        193.62213134765625,
+        0.0,
+        273.04876708984375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        188.624267578125,
+        0.0,
+        273.19476318359375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        198.6199951171875,
+        0.0,
+        272.90277099609375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        193.62213134765625,
+        0.0,
+        273.04876708984375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        203.61785888671875,
+        0.0,
+        272.75677490234375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        198.6199951171875,
+        0.0,
+        272.90277099609375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        208.61572265625,
+        0.0,
+        272.61077880859375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        203.61785888671875,
+        0.0,
+        272.75677490234375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        213.61358642578125,
+        0.0,
+        272.46478271484375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        208.61572265625,
+        0.0,
+        272.61077880859375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        218.6114501953125,
+        0.0,
+        272.31878662109375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        213.61358642578125,
+        0.0,
+        272.46478271484375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        223.60931396484375,
+        0.0,
+        272.17279052734375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        218.6114501953125,
+        0.0,
+        272.31878662109375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        228.607177734375,
+        0.0,
+        272.02679443359375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        223.60931396484375,
+        0.0,
+        272.17279052734375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        233.60504150390625,
+        0.0,
+        271.88079833984375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        228.607177734375,
+        0.0,
+        272.02679443359375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        238.6029052734375,
+        0.0,
+        271.73480224609375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        233.60504150390625,
+        0.0,
+        271.88079833984375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        243.60076904296875,
+        0.0,
+        271.58880615234375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        238.6029052734375,
+        0.0,
+        271.73480224609375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        248.5986328125,
+        0.0,
+        271.44281005859375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        243.60076904296875,
+        0.0,
+        271.58880615234375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        253.59649658203125,
+        0.0,
+        271.29681396484375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        248.5986328125,
+        0.0,
+        271.44281005859375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        258.5943603515625,
+        0.0,
+        271.15081787109375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        253.59649658203125,
+        0.0,
+        271.29681396484375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        263.59222412109375,
+        0.0,
+        271.00482177734375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        258.5943603515625,
+        0.0,
+        271.15081787109375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        268.590087890625,
+        0.0,
+        270.85882568359375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        263.59222412109375,
+        0.0,
+        271.00482177734375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        273.58795166015625,
+        0.0,
+        270.71282958984375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        268.590087890625,
+        0.0,
+        270.85882568359375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        278.5858154296875,
+        0.0,
+        270.56683349609375
+      ],
+      "length_meters": 5.0,
+      "start": [
+        273.58795166015625,
+        0.0,
+        270.71282958984375
+      ],
+      "start_heading_radians": 1.5999995470046997
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -4.0552785662839597e-07,
+        0.0,
+        -4.638698101043701
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -8.110557132567919e-07,
+        0.0,
+        -9.277396202087402
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -4.0552785662839597e-07,
+        0.0,
+        -4.638698101043701
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -1.2165835414634785e-06,
+        0.0,
+        -13.916093826293945
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -8.110557132567919e-07,
+        0.0,
+        -9.277396202087402
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -1.6221114265135839e-06,
+        0.0,
+        -18.554792404174805
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -1.2165835414634785e-06,
+        0.0,
+        -13.916093826293945
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -2.0276393115636893e-06,
+        0.0,
+        -23.193490982055664
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -1.6221114265135839e-06,
+        0.0,
+        -18.554792404174805
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -2.433167082926957e-06,
+        0.0,
+        -27.832189559936523
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -2.0276393115636893e-06,
+        0.0,
+        -23.193490982055664
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -2.8386948542902246e-06,
+        0.0,
+        -32.47088623046875
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -2.433167082926957e-06,
+        0.0,
+        -27.832189559936523
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -3.2442226256534923e-06,
+        0.0,
+        -37.10958480834961
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -2.8386948542902246e-06,
+        0.0,
+        -32.47088623046875
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        -3.64975039701676e-06,
+        0.0,
+        -41.74828338623047
+      ],
+      "length_meters": 4.638698101043701,
+      "start": [
+        -3.2442226256534923e-06,
+        0.0,
+        -37.10958480834961
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": -0.026594635099172592,
+      "end": [
+        0.26744213700294495,
+        0.0,
+        -46.22503662109375
+      ],
+      "length_meters": 4.487393856048584,
+      "start": [
+        -3.64975039701676e-06,
+        0.0,
+        -41.74828338623047
+      ],
+      "start_heading_radians": 3.1415927410125732
+    },
+    {
+      "curvature_radians_per_meter": -0.026594635099172592,
+      "end": [
+        1.0659782886505127,
+        0.0,
+        -50.63810729980469
+      ],
+      "length_meters": 4.487393856048584,
+      "start": [
+        0.26744213700294495,
+        0.0,
+        -46.22503662109375
+      ],
+      "start_heading_radians": 3.022252082824707
+    },
+    {
+      "curvature_radians_per_meter": -0.026594635099172592,
+      "end": [
+        2.384243965148926,
+        0.0,
+        -54.92471694946289
+      ],
+      "length_meters": 4.487393856048584,
+      "start": [
+        1.0659782886505127,
+        0.0,
+        -50.63810729980469
+      ],
+      "start_heading_radians": 2.902911424636841
+    },
+    {
+      "curvature_radians_per_meter": -0.026594635099172592,
+      "end": [
+        4.203484535217285,
+        0.0,
+        -59.023887634277344
+      ],
+      "length_meters": 4.487393856048584,
+      "start": [
+        2.384243965148926,
+        0.0,
+        -54.92471694946289
+      ],
+      "start_heading_radians": 2.7835707664489746
+    },
+    {
+      "curvature_radians_per_meter": -0.026594635099172592,
+      "end": [
+        6.497823238372803,
+        0.0,
+        -62.8773078918457
+      ],
+      "length_meters": 4.487393856048584,
+      "start": [
+        4.203484535217285,
+        0.0,
+        -59.023887634277344
+      ],
+      "start_heading_radians": 2.6642301082611084
+    },
+    {
+      "curvature_radians_per_meter": -0.026594635099172592,
+      "end": [
+        9.234622955322266,
+        0.0,
+        -66.43016052246094
+      ],
+      "length_meters": 4.487393856048584,
+      "start": [
+        6.497823238372803,
+        0.0,
+        -62.8773078918457
+      ],
+      "start_heading_radians": 2.544889450073242
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        12.639497756958008,
+        0.0,
+        -69.99613952636719
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        9.234622955322266,
+        0.0,
+        -66.43016052246094
+      ],
+      "start_heading_radians": 2.425548791885376
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        16.35917091369629,
+        0.0,
+        -73.23238372802734
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        12.639497756958008,
+        0.0,
+        -69.99613952636719
+      ],
+      "start_heading_radians": 2.3330540657043457
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        20.361848831176758,
+        0.0,
+        -76.1112289428711
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        16.35917091369629,
+        0.0,
+        -73.23238372802734
+      ],
+      "start_heading_radians": 2.2405595779418945
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        24.613317489624023,
+        0.0,
+        -78.60807800292969
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        20.361848831176758,
+        0.0,
+        -76.1112289428711
+      ],
+      "start_heading_radians": 2.1480650901794434
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        29.077234268188477,
+        0.0,
+        -80.70157623291016
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        24.613317489624023,
+        0.0,
+        -78.60807800292969
+      ],
+      "start_heading_radians": 2.055570602416992
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        33.715431213378906,
+        0.0,
+        -82.37382507324219
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        29.077234268188477,
+        0.0,
+        -80.70157623291016
+      ],
+      "start_heading_radians": 1.9630759954452515
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        38.48825454711914,
+        0.0,
+        -83.61052703857422
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        33.715431213378906,
+        0.0,
+        -82.37382507324219
+      ],
+      "start_heading_radians": 1.8705813884735107
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        43.35490036010742,
+        0.0,
+        -84.40111541748047
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        38.48825454711914,
+        0.0,
+        -83.61052703857422
+      ],
+      "start_heading_radians": 1.77808678150177
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        48.273765563964844,
+        0.0,
+        -84.73882293701172
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        43.35490036010742,
+        0.0,
+        -84.40111541748047
+      ],
+      "start_heading_radians": 1.6855921745300293
+    },
+    {
+      "curvature_radians_per_meter": -0.018753206357359886,
+      "end": [
+        53.202796936035156,
+        0.0,
+        -84.62076568603516
+      ],
+      "length_meters": 4.932202339172363,
+      "start": [
+        48.273765563964844,
+        0.0,
+        -84.73882293701172
+      ],
+      "start_heading_radians": 1.5930975675582886
+    },
+    {
+      "curvature_radians_per_meter": -0.01753164269030094,
+      "end": [
+        58.12558364868164,
+        0.0,
+        -84.05892181396484
+      ],
+      "length_meters": 4.956305503845215,
+      "start": [
+        53.202796936035156,
+        0.0,
+        -84.62076568603516
+      ],
+      "start_heading_radians": 1.5006029605865479
+    },
+    {
+      "curvature_radians_per_meter": -0.01753164269030094,
+      "end": [
+        62.98103713989258,
+        0.0,
+        -83.07198333740234
+      ],
+      "length_meters": 4.956305503845215,
+      "start": [
+        58.12558364868164,
+        0.0,
+        -84.05892181396484
+      ],
+      "start_heading_radians": 1.4137108325958252
+    },
+    {
+      "curvature_radians_per_meter": -0.01753164269030094,
+      "end": [
+        67.73252868652344,
+        0.0,
+        -81.66740417480469
+      ],
+      "length_meters": 4.956305503845215,
+      "start": [
+        62.98103713989258,
+        0.0,
+        -83.07198333740234
+      ],
+      "start_heading_radians": 1.3268187046051025
+    },
+    {
+      "curvature_radians_per_meter": -0.01753164269030094,
+      "end": [
+        72.34419250488281,
+        0.0,
+        -79.85577392578125
+      ],
+      "length_meters": 4.956305503845215,
+      "start": [
+        67.73252868652344,
+        0.0,
+        -81.66740417480469
+      ],
+      "start_heading_radians": 1.2399265766143799
+    },
+    {
+      "curvature_radians_per_meter": -0.01753164269030094,
+      "end": [
+        76.78124237060547,
+        0.0,
+        -77.65076446533203
+      ],
+      "length_meters": 4.956305503845215,
+      "start": [
+        72.34419250488281,
+        0.0,
+        -79.85577392578125
+      ],
+      "start_heading_radians": 1.1530344486236572
+    },
+    {
+      "curvature_radians_per_meter": -0.01753164269030094,
+      "end": [
+        81.01020050048828,
+        0.0,
+        -75.06900787353516
+      ],
+      "length_meters": 4.956305503845215,
+      "start": [
+        76.78124237060547,
+        0.0,
+        -77.65076446533203
+      ],
+      "start_heading_radians": 1.0661423206329346
+    },
+    {
+      "curvature_radians_per_meter": -0.01659061573445797,
+      "end": [
+        84.79756927490234,
+        0.0,
+        -72.30496978759766
+      ],
+      "length_meters": 4.6899027824401855,
+      "start": [
+        81.01020050048828,
+        0.0,
+        -75.06900787353516
+      ],
+      "start_heading_radians": 0.9792501330375671
+    },
+    {
+      "curvature_radians_per_meter": -0.01659061573445797,
+      "end": [
+        88.35863494873047,
+        0.0,
+        -69.25489807128906
+      ],
+      "length_meters": 4.6899027824401855,
+      "start": [
+        84.79756927490234,
+        0.0,
+        -72.30496978759766
+      ],
+      "start_heading_radians": 0.901441752910614
+    },
+    {
+      "curvature_radians_per_meter": -0.01659061573445797,
+      "end": [
+        91.67183685302734,
+        0.0,
+        -65.937255859375
+      ],
+      "length_meters": 4.6899027824401855,
+      "start": [
+        88.35863494873047,
+        0.0,
+        -69.25489807128906
+      ],
+      "start_heading_radians": 0.8236333727836609
+    },
+    {
+      "curvature_radians_per_meter": -0.01659061573445797,
+      "end": [
+        94.7171401977539,
+        0.0,
+        -62.37211608886719
+      ],
+      "length_meters": 4.6899027824401855,
+      "start": [
+        91.67183685302734,
+        0.0,
+        -65.937255859375
+      ],
+      "start_heading_radians": 0.7458249926567078
+    },
+    {
+      "curvature_radians_per_meter": -0.01659061573445797,
+      "end": [
+        97.47611236572266,
+        0.0,
+        -58.5810546875
+      ],
+      "length_meters": 4.6899027824401855,
+      "start": [
+        94.7171401977539,
+        0.0,
+        -62.37211608886719
+      ],
+      "start_heading_radians": 0.6680166125297546
+    },
+    {
+      "curvature_radians_per_meter": -0.01659061573445797,
+      "end": [
+        99.93206024169922,
+        0.0,
+        -54.587005615234375
+      ],
+      "length_meters": 4.6899027824401855,
+      "start": [
+        97.47611236572266,
+        0.0,
+        -58.5810546875
+      ],
+      "start_heading_radians": 0.5902082324028015
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        102.03131103515625,
+        0.0,
+        -50.207237243652344
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        99.93206024169922,
+        0.0,
+        -54.587005615234375
+      ],
+      "start_heading_radians": 0.5123998522758484
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        103.54097747802734,
+        0.0,
+        -45.590946197509766
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        102.03131103515625,
+        0.0,
+        -50.207237243652344
+      ],
+      "start_heading_radians": 0.3815110921859741
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        104.43523406982422,
+        0.0,
+        -40.817108154296875
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        103.54097747802734,
+        0.0,
+        -45.590946197509766
+      ],
+      "start_heading_radians": 0.25062233209609985
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        104.69878387451172,
+        0.0,
+        -35.96738815307617
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        104.43523406982422,
+        0.0,
+        -40.817108154296875
+      ],
+      "start_heading_radians": 0.11973358690738678
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        104.32711029052734,
+        0.0,
+        -31.124755859375
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        104.69878387451172,
+        0.0,
+        -35.96738815307617
+      ],
+      "start_heading_radians": -0.011155158281326294
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        103.32658386230469,
+        0.0,
+        -26.372053146362305
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        104.32711029052734,
+        0.0,
+        -31.124755859375
+      ],
+      "start_heading_radians": -0.14204390347003937
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        101.71430969238281,
+        0.0,
+        -21.79058837890625
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        103.32658386230469,
+        0.0,
+        -26.372053146362305
+      ],
+      "start_heading_radians": -0.27293264865875244
+    },
+    {
+      "curvature_radians_per_meter": -0.026929939165711403,
+      "end": [
+        99.51787567138672,
+        0.0,
+        -17.458738327026367
+      ],
+      "length_meters": 4.860342979431152,
+      "start": [
+        101.71430969238281,
+        0.0,
+        -21.79058837890625
+      ],
+      "start_heading_radians": -0.4038214087486267
+    },
+    {
+      "curvature_radians_per_meter": -0.007110170554369688,
+      "end": [
+        97.20349884033203,
+        0.0,
+        -13.687623977661133
+      ],
+      "length_meters": 4.424844264984131,
+      "start": [
+        99.51787567138672,
+        0.0,
+        -17.458738327026367
+      ],
+      "start_heading_radians": -0.534710168838501
+    },
+    {
+      "curvature_radians_per_meter": -0.007110170554369688,
+      "end": [
+        94.77163696289063,
+        0.0,
+        -9.99117660522461
+      ],
+      "length_meters": 4.424844264984131,
+      "start": [
+        97.20349884033203,
+        0.0,
+        -13.687623977661133
+      ],
+      "start_heading_radians": -0.5661715865135193
+    },
+    {
+      "curvature_radians_per_meter": -0.007110170554369688,
+      "end": [
+        92.22470092773438,
+        0.0,
+        -6.37306022644043
+      ],
+      "length_meters": 4.424844264984131,
+      "start": [
+        94.77163696289063,
+        0.0,
+        -9.99117660522461
+      ],
+      "start_heading_radians": -0.5976330041885376
+    },
+    {
+      "curvature_radians_per_meter": -0.007110170554369688,
+      "end": [
+        89.56522369384766,
+        0.0,
+        -2.836845874786377
+      ],
+      "length_meters": 4.424844264984131,
+      "start": [
+        92.22470092773438,
+        0.0,
+        -6.37306022644043
+      ],
+      "start_heading_radians": -0.6290944218635559
+    },
+    {
+      "curvature_radians_per_meter": -0.007110170554369688,
+      "end": [
+        86.79582214355469,
+        0.0,
+        0.6139621734619141
+      ],
+      "length_meters": 4.424844264984131,
+      "start": [
+        89.56522369384766,
+        0.0,
+        -2.836845874786377
+      ],
+      "start_heading_radians": -0.6605558395385742
+    },
+    {
+      "curvature_radians_per_meter": -0.007110170554369688,
+      "end": [
+        83.91924285888672,
+        0.0,
+        3.9759440422058105
+      ],
+      "length_meters": 4.424844264984131,
+      "start": [
+        86.79582214355469,
+        0.0,
+        0.6139621734619141
+      ],
+      "start_heading_radians": -0.6920172572135925
+    },
+    {
+      "curvature_radians_per_meter": -0.007110170554369688,
+      "end": [
+        80.93832397460938,
+        0.0,
+        7.245779991149902
+      ],
+      "length_meters": 4.424844264984131,
+      "start": [
+        83.91924285888672,
+        0.0,
+        3.9759440422058105
+      ],
+      "start_heading_radians": -0.7234786748886108
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        77.76587677001953,
+        0.0,
+        10.617618560791016
+      ],
+      "length_meters": 4.6296586990356445,
+      "start": [
+        80.93832397460938,
+        0.0,
+        7.245779991149902
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        74.59342956542969,
+        0.0,
+        13.989457130432129
+      ],
+      "length_meters": 4.6296586990356445,
+      "start": [
+        77.76587677001953,
+        0.0,
+        10.617618560791016
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        71.42098236083984,
+        0.0,
+        17.361295700073242
+      ],
+      "length_meters": 4.6296586990356445,
+      "start": [
+        74.59342956542969,
+        0.0,
+        13.989457130432129
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        68.24853515625,
+        0.0,
+        20.733135223388672
+      ],
+      "length_meters": 4.6296586990356445,
+      "start": [
+        71.42098236083984,
+        0.0,
+        17.361295700073242
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        65.07608795166016,
+        0.0,
+        24.1049747467041
+      ],
+      "length_meters": 4.6296586990356445,
+      "start": [
+        68.24853515625,
+        0.0,
+        20.733135223388672
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        61.671409606933594,
+        0.0,
+        27.723636627197266
+      ],
+      "length_meters": 4.968555927276611,
+      "start": [
+        65.07608795166016,
+        0.0,
+        24.1049747467041
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        58.26673126220703,
+        0.0,
+        31.34229850769043
+      ],
+      "length_meters": 4.968555927276611,
+      "start": [
+        61.671409606933594,
+        0.0,
+        27.723636627197266
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        54.86205291748047,
+        0.0,
+        34.960960388183594
+      ],
+      "length_meters": 4.968555927276611,
+      "start": [
+        58.26673126220703,
+        0.0,
+        31.34229850769043
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        51.457374572753906,
+        0.0,
+        38.579620361328125
+      ],
+      "length_meters": 4.968555927276611,
+      "start": [
+        54.86205291748047,
+        0.0,
+        34.960960388183594
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        48.052696228027344,
+        0.0,
+        42.198280334472656
+      ],
+      "length_meters": 4.968555927276611,
+      "start": [
+        51.457374572753906,
+        0.0,
+        38.579620361328125
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0,
+      "end": [
+        44.64801788330078,
+        0.0,
+        45.81694030761719
+      ],
+      "length_meters": 4.968555927276611,
+      "start": [
+        48.052696228027344,
+        0.0,
+        42.198280334472656
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        41.409629821777344,
+        0.0,
+        49.32200241088867
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        44.64801788330078,
+        0.0,
+        45.81694030761719
+      ],
+      "start_heading_radians": -0.7549400925636292
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        38.235321044921875,
+        0.0,
+        52.88522720336914
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        41.409629821777344,
+        0.0,
+        49.32200241088867
+      ],
+      "start_heading_radians": -0.736806333065033
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        35.12615203857422,
+        0.0,
+        56.50540542602539
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        38.235321044921875,
+        0.0,
+        52.88522720336914
+      ],
+      "start_heading_radians": -0.7186725735664368
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        32.0831298828125,
+        0.0,
+        60.18137741088867
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        35.12615203857422,
+        0.0,
+        56.50540542602539
+      ],
+      "start_heading_radians": -0.7005388140678406
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        29.107275009155273,
+        0.0,
+        63.91191864013672
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        32.0831298828125,
+        0.0,
+        60.18137741088867
+      ],
+      "start_heading_radians": -0.6824050545692444
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        26.199542999267578,
+        0.0,
+        67.69580841064453
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        29.107275009155273,
+        0.0,
+        63.91191864013672
+      ],
+      "start_heading_radians": -0.6642712950706482
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        23.36090850830078,
+        0.0,
+        71.53180694580078
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        26.199542999267578,
+        0.0,
+        67.69580841064453
+      ],
+      "start_heading_radians": -0.646137535572052
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        20.592294692993164,
+        0.0,
+        75.41862487792969
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        23.36090850830078,
+        0.0,
+        71.53180694580078
+      ],
+      "start_heading_radians": -0.6280037760734558
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        17.894611358642578,
+        0.0,
+        79.35502624511719
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        20.592294692993164,
+        0.0,
+        75.41862487792969
+      ],
+      "start_heading_radians": -0.6098700165748596
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        15.268753051757813,
+        0.0,
+        83.33969116210938
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        17.894611358642578,
+        0.0,
+        79.35502624511719
+      ],
+      "start_heading_radians": -0.5917362570762634
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        12.715582847595215,
+        0.0,
+        87.37132263183594
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        15.268753051757813,
+        0.0,
+        83.33969116210938
+      ],
+      "start_heading_radians": -0.5736024975776672
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        10.235931396484375,
+        0.0,
+        91.4485855102539
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        12.715582847595215,
+        0.0,
+        87.37132263183594
+      ],
+      "start_heading_radians": -0.555468738079071
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        7.830630779266357,
+        0.0,
+        95.57012939453125
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        10.235931396484375,
+        0.0,
+        91.4485855102539
+      ],
+      "start_heading_radians": -0.5373349785804749
+    },
+    {
+      "curvature_radians_per_meter": 0.0037999218329787254,
+      "end": [
+        5.500449180603027,
+        0.0,
+        99.734619140625
+      ],
+      "length_meters": 4.772146701812744,
+      "start": [
+        7.830630779266357,
+        0.0,
+        95.57012939453125
+      ],
+      "start_heading_radians": -0.5192012190818787
+    },
+    {
+      "curvature_radians_per_meter": 0.024948714300990105,
+      "end": [
+        3.550201892852783,
+        0.0,
+        103.50769805908203
+      ],
+      "length_meters": 4.249290466308594,
+      "start": [
+        5.500449180603027,
+        0.0,
+        99.734619140625
+      ],
+      "start_heading_radians": -0.5300716757774353
+    },
+    {
+      "curvature_radians_per_meter": 0.024948714300990105,
+      "end": [
+        2.0101559162139893,
+        0.0,
+        107.46595764160156
+      ],
+      "length_meters": 4.249290466308594,
+      "start": [
+        3.550201892852783,
+        0.0,
+        103.50769805908203
+      ],
+      "start_heading_radians": -0.42405733466148376
+    },
+    {
+      "curvature_radians_per_meter": 0.024948714300990105,
+      "end": [
+        0.8976011276245117,
+        0.0,
+        111.56495666503906
+      ],
+      "length_meters": 4.249290466308594,
+      "start": [
+        2.0101559162139893,
+        0.0,
+        107.46595764160156
+      ],
+      "start_heading_radians": -0.3180429935455322
+    },
+    {
+      "curvature_radians_per_meter": 0.024948714300990105,
+      "end": [
+        0.22503256797790527,
+        0.0,
+        115.7586669921875
+      ],
+      "length_meters": 4.249290466308594,
+      "start": [
+        0.8976011276245117,
+        0.0,
+        111.56495666503906
+      ],
+      "start_heading_radians": -0.2120286524295807
+    },
+    {
+      "curvature_radians_per_meter": 0.024948714300990105,
+      "end": [
+        -2.980232238769531e-07,
+        0.0,
+        120.0
+      ],
+      "length_meters": 4.249290466308594,
+      "start": [
+        0.22503256797790527,
+        0.0,
+        115.7586669921875
+      ],
+      "start_heading_radians": -0.10601431876420975
+    }
+  ],
+  "version": 1
+}
