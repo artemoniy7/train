@@ -24,3 +24,27 @@ the camera as its listener, so volume falls off naturally when the camera moves
 away. Build with OpenAL development headers and link the OpenAL library to
 enable sound; a build without OpenAL still loads all train packages and reports
 that sound is disabled.
+
+## Track builder
+
+Press `H` to enter the track builder, `I` for straight track, and `J` for a
+curve. Clicking near either endpoint of existing track snaps the new track's
+starting point and tangent to that endpoint. A straight track must remain
+within 5° of that tangent; connecting two existing endpoints with the straight
+tool is intentionally ignored. Curves are limited to a 20 m minimum radius and
+90° maximum turn, preventing unrealistically sharp geometry.
+
+Pressing `Esc` saves all placed rail segments to `maps/latest_track_map.json`.
+The human-readable JSON file is versioned and stores each segment's endpoints,
+initial heading, curvature, and length; a later save replaces the previous map.
+The simulator loads this file automatically on startup; it uses the built-in
+demonstration track only when the file is absent or invalid.
+
+Press `P` to create a custom train route. Left-click rail segments to add blue
+route points; every connection follows the existing rails rather than a direct
+line. A route is changed only by clicks: simply moving the cursor over rails
+does not add or preview a connection. Click the first point to close the route.
+Press `P` again after closing a route to start a new one, right-click to cancel
+the route being created, or press `X` at any time to completely clear the
+custom route and return trains to the normal track route. An open route makes
+trains shuttle between its endpoints; a closed route loops continuously.
