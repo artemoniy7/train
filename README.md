@@ -50,5 +50,9 @@ reopen the route editor without changing a completed route; closing the editor
 also hides its blue route guide. After reopening, the first click on a rail
 starts its replacement. Right-click cancels the route being created, or press
 `X` at any time to completely clear the
-custom route and return trains to the normal track route. An open route makes
-trains shuttle between its endpoints; a closed route loops continuously.
+custom route and return trains to the normal track route. Every route point
+between the endpoints is a stop: the train brakes to a complete halt there and
+waits briefly before continuing to the next point. This also ensures a stop at
+a point before the route leaves it in the opposite direction or onto another
+branch. An open route makes trains shuttle between its endpoints; a closed
+route loops continuously.
