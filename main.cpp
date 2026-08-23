@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -22,6 +23,8 @@
 #include <optional>
 #include <cstdint>
 #include <cmath>
+#include <array>
+#include <cstdio>
 #include "json.hpp"
 
 #if __has_include(<AL/al.h>) && __has_include(<AL/alc.h>)
@@ -166,6 +169,7 @@ struct Model {
     float scale = 0.5f;
     unsigned int engineSoundSource = 0;
     unsigned int engineSoundBuffer = 0;
+    float previousRoutePosition = 0.0f;
 
     void draw(unsigned int shaderProgram) {
         for (auto& mesh : meshes) {
@@ -253,7 +257,8 @@ public:
         std::vector<char> pcm;
         ALenum format;
         ALsizei sampleRate;
-        if (!readWave(soundPath, pcm, format, sampleRate)) {
+        float durationSeconds = 0.0f;
+        if (!loadPcmSound(soundPath, pcm, format, sampleRate, durationSeconds)) {
             std::cout << "Cannot load engine WAV: " << soundPath << std::endl;
             return false;
         }
@@ -271,6 +276,59 @@ public:
         updateSource(train);
         alSourcePlay(source);
         return true;
+    }
+
+    bool loadOneShotBuffer(const fs::path& soundPath, unsigned int& buffer, float& durationSeconds) const {
+        std::vector<char> pcm;
+        ALenum format;
+        ALsizei sampleRate;
+        if (!loadPcmSound(soundPath, pcm, format, sampleRate, durationSeconds)) {
+            std::cout << "Cannot load rail joint sound: " << soundPath << std::endl;
+            return false;
+        }
+
+        alGenBuffers(1, &buffer);
+        alBufferData(buffer, format, pcm.data(), static_cast<ALsizei>(pcm.size()), sampleRate);
+        return true;
+    }
+
+    unsigned int playOneShot(unsigned int buffer, const glm::vec3& position, float pitch, float gain) const {
+        ALuint source = 0;
+        alGenSources(1, &source);
+        alSourcei(source, AL_BUFFER, buffer);
+        alSourcei(source, AL_LOOPING, AL_FALSE);
+        alSource3f(source, AL_POSITION, position.x, position.y, position.z);
+        alSourcef(source, AL_REFERENCE_DISTANCE, 5.0f);
+        alSourcef(source, AL_MAX_DISTANCE, 120.0f);
+        alSourcef(source, AL_ROLLOFF_FACTOR, 1.4f);
+        alSourcef(source, AL_PITCH, pitch);
+        alSourcef(source, AL_GAIN, gain);
+        alSourcePlay(source);
+        return source;
+    }
+
+    void cleanupStoppedSources(std::vector<unsigned int>& sources) const {
+        sources.erase(std::remove_if(sources.begin(), sources.end(), [](unsigned int source) {
+            ALint state = AL_STOPPED;
+            alGetSourcei(source, AL_SOURCE_STATE, &state);
+            if (state == AL_STOPPED) {
+                alDeleteSources(1, &source);
+                return true;
+            }
+            return false;
+        }), sources.end());
+    }
+
+    void releaseSources(std::vector<unsigned int>& sources) const {
+        if (!sources.empty()) {
+            alDeleteSources(static_cast<ALsizei>(sources.size()), sources.data());
+            sources.clear();
+        }
+    }
+
+    void releaseBuffer(unsigned int& buffer) const {
+        if (buffer != 0) alDeleteBuffers(1, &buffer);
+        buffer = 0;
     }
 
     void updateListener(const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up) {
@@ -324,7 +382,54 @@ private:
     }
     static uint16_t readU16(const char* value) { return static_cast<unsigned char>(value[0]) | (static_cast<uint16_t>(static_cast<unsigned char>(value[1])) << 8); }
 
-    static bool readWave(const fs::path& path, std::vector<char>& pcm, ALenum& format, ALsizei& sampleRate) {
+    static bool loadPcmSound(const fs::path& path, std::vector<char>& pcm, ALenum& format, ALsizei& sampleRate, float& durationSeconds) {
+        std::string ext = path.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ext == ".mp3") {
+            return readMp3WithFfmpeg(path, pcm, format, sampleRate, durationSeconds);
+        }
+        return readWave(path, pcm, format, sampleRate, durationSeconds);
+    }
+
+    static std::string shellQuote(const fs::path& path) {
+        std::string quoted = "'";
+        for (char c : path.string()) {
+            quoted += c == '\'' ? "'\\''" : std::string(1, c);
+        }
+        quoted += "'";
+        return quoted;
+    }
+
+    static bool readMp3WithFfmpeg(const fs::path& path, std::vector<char>& pcm, ALenum& format, ALsizei& sampleRate, float& durationSeconds) {
+        constexpr ALsizei mp3SampleRate = 44100;
+        const std::string command = "ffmpeg -v error -i " + shellQuote(path)
+            + " -f s16le -acodec pcm_s16le -ac 1 -ar 44100 -";
+        FILE* pipe = popen(command.c_str(), "r");
+        if (!pipe) return false;
+
+        std::array<char, 4096> buffer;
+        while (true) {
+            const size_t read = std::fread(buffer.data(), 1, buffer.size(), pipe);
+            if (read > 0) pcm.insert(pcm.end(), buffer.data(), buffer.data() + read);
+            if (read < buffer.size()) {
+                if (std::feof(pipe)) break;
+                if (std::ferror(pipe)) {
+                    pclose(pipe);
+                    return false;
+                }
+            }
+        }
+
+        const int status = pclose(pipe);
+        if (status != 0 || pcm.empty()) return false;
+        format = AL_FORMAT_MONO16;
+        sampleRate = mp3SampleRate;
+        durationSeconds = static_cast<float>(pcm.size()) / (static_cast<float>(sampleRate) * sizeof(int16_t));
+        return true;
+    }
+
+    static bool readWave(const fs::path& path, std::vector<char>& pcm, ALenum& format, ALsizei& sampleRate, float& durationSeconds) {
         std::ifstream input(path, std::ios::binary);
         char header[12];
         if (!input.read(header, sizeof(header)) || std::memcmp(header, "RIFF", 4) != 0 || std::memcmp(header + 8, "WAVE", 4) != 0) return false;
@@ -372,6 +477,9 @@ private:
         if (channels == 1 && bitsPerSample == 8) format = AL_FORMAT_MONO8;
         else if (channels == 1 && bitsPerSample == 16) format = AL_FORMAT_MONO16;
         else return false;
+        durationSeconds = sampleRate > 0
+            ? static_cast<float>(pcm.size()) / (static_cast<float>(sampleRate) * static_cast<float>(bitsPerSample / 8))
+            : 0.0f;
         return true;
     }
 };
@@ -380,6 +488,11 @@ class TrainAudioSystem {
 public:
     bool initialize() { std::cout << "Train sounds require an OpenAL-enabled build" << std::endl; return false; }
     bool startLoopingEngine(Model&, const fs::path&) { return false; }
+    bool loadOneShotBuffer(const fs::path&, unsigned int&, float&) const { return false; }
+    unsigned int playOneShot(unsigned int, const glm::vec3&, float, float) const { return 0; }
+    void cleanupStoppedSources(std::vector<unsigned int>&) const {}
+    void releaseSources(std::vector<unsigned int>&) const {}
+    void releaseBuffer(unsigned int&) const {}
     void updateListener(const glm::vec3&, const glm::vec3&, const glm::vec3&) {}
     void updateSource(const Model&) const {}
     void updateEngine(const Model&, const glm::vec3&) const {}
@@ -392,9 +505,31 @@ struct TrackSegment {
     glm::mat4 transform;
     glm::vec3 start;
     glm::vec3 end;
+    glm::vec3 direction;
+    float length = 0.0f;
+    float distanceFromRouteStart = 0.0f;
 };
 
 std::vector<TrackSegment> trackSegments;
+
+struct TrackJointSound {
+    glm::vec3 position;
+    float routePosition = 0.0f;
+};
+
+std::vector<TrackJointSound> trackJointSounds;
+std::vector<unsigned int> activeJointSoundSources;
+unsigned int jointSoundBuffer = 0;
+float jointSoundDurationSeconds = 0.0f;
+
+constexpr float jointSoundIntervalMeters = 25.0f;
+constexpr float jointTwoAxleDistanceMeters = 2.7f;
+constexpr float jointSoundPaddingSeconds = 0.08f;
+
+struct RouteSample {
+    glm::vec3 position = glm::vec3(0.0f);
+    glm::vec3 direction = glm::vec3(0.0f, 0.0f, 1.0f);
+};
 
 // Обработчики GLFW
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -862,6 +997,41 @@ std::vector<fs::path> findTrainModelPaths() {
     return modelPaths;
 }
 
+RouteSample sampleTrackRoute(float routePosition) {
+    if (trackSegments.empty()) {
+        return {};
+    }
+
+    const TrackSegment& lastSegment = trackSegments.back();
+    const float routeLength = lastSegment.distanceFromRouteStart + lastSegment.length;
+    const float clampedPosition = std::clamp(routePosition, 0.0f, routeLength);
+
+    for (const TrackSegment& segment : trackSegments) {
+        const float segmentEndDistance = segment.distanceFromRouteStart + segment.length;
+        if (clampedPosition <= segmentEndDistance) {
+            const float localDistance = clampedPosition - segment.distanceFromRouteStart;
+            return {
+                segment.start + segment.direction * localDistance,
+                segment.direction
+            };
+        }
+    }
+
+    return {lastSegment.end, lastSegment.direction};
+}
+
+glm::mat4 createTrackAlignedTransform(
+    const glm::vec3& position,
+    const glm::vec3& direction,
+    float scale
+) {
+    const float yaw = std::atan2(direction.x, direction.z);
+    glm::mat4 transform = glm::translate(glm::mat4(1.0f), position);
+    transform = glm::rotate(transform, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+    transform = glm::scale(transform, glm::vec3(scale));
+    return transform;
+}
+
 void updateTrainMotion(Model& train, float dt) {
     if (train.routeDistance <= 0.0f || dt <= 0.0f) return;
 
@@ -887,14 +1057,37 @@ void updateTrainMotion(Model& train, float dt) {
     train.routeVelocity += signedAcceleration * dt;
     if (train.routeVelocity * train.motionDirection < 0.0f) train.routeVelocity = 0.0f;
     train.routeVelocity = std::clamp(train.routeVelocity, -maxSpeed, maxSpeed);
+    train.previousRoutePosition = train.routePosition;
     train.routePosition = std::clamp(train.routePosition + train.routeVelocity * dt, 0.0f, train.routeDistance);
     train.engineThrottle = signedAcceleration * train.motionDirection > 0.0f ? 1.0f
         : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
 
-    train.position = train.routeStart + train.routeDirection * train.routePosition;
-    train.transform = glm::translate(glm::mat4(1.0f), train.position);
-    train.transform = glm::scale(train.transform, glm::vec3(train.scale));
+    const RouteSample sample = sampleTrackRoute(train.routePosition);
+    train.routeDirection = sample.direction;
+    train.position = sample.position;
+    train.position.y = train.routeStart.y;
+    train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
     train.transform *= train.sourceTransform;
+}
+
+void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
+    if (jointSoundBuffer == 0 || jointSoundDurationSeconds <= 0.0f) return;
+
+    audioSystem.cleanupStoppedSources(activeJointSoundSources);
+    for (const Model& train : trains) {
+        if (train.routeDistance <= 0.0f || train.previousRoutePosition == train.routePosition) continue;
+
+        const float from = std::min(train.previousRoutePosition, train.routePosition);
+        const float to = std::max(train.previousRoutePosition, train.routePosition);
+        for (const TrackJointSound& joint : trackJointSounds) {
+            if (joint.routePosition < from || joint.routePosition > to) continue;
+
+            const float speedMs = std::max(std::abs(train.routeVelocity), 0.25f);
+            const float targetDuration = jointTwoAxleDistanceMeters / speedMs + jointSoundPaddingSeconds;
+            const float pitch = std::clamp(jointSoundDurationSeconds / targetDuration, 0.25f, 2.0f);
+            activeJointSoundSources.push_back(audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch, 0.95f));
+        }
+    }
 }
 
 int main() {
@@ -936,30 +1129,74 @@ int main() {
     initPlane();
 
     // Blender assets use two source units per metre.  A 5 m rail piece has
-    // endpoints 10 source units apart, therefore the common scale below
-    // produces a 50 m route from ten connected pieces.
-    constexpr int trackPieceCount = 10;
+    // endpoints 10 source units apart, therefore the common scale below keeps
+    // each generated route segment at 5 metres.  Build a route from straight
+    // spans and gradual 5 m chord turns: the same path data is used both for
+    // drawing rails and for moving trains, so curves are now driveable instead
+    // of being only visual decoration.
+    constexpr int straightBeforeCurvePieces = 40;
+    constexpr int firstCurvePieces = 20;
+    constexpr int straightAfterCurvePieces = 20;
+    constexpr int secondCurvePieces = 20;
+    constexpr int trackPieceCount = straightBeforeCurvePieces + firstCurvePieces
+        + straightAfterCurvePieces + secondCurvePieces;
     constexpr float trackPieceLength = 5.0f;
     constexpr float assetScale = 0.5f;
+    constexpr float quarterTurnRadians = glm::half_pi<float>();
     Model rail = loadModel("rails/5m_track.glb", "5m_track");
     if (rail.meshes.empty() || rail.markers.count("track_start") == 0 ||
         rail.markers.count("track_end") == 0) {
         std::cout << "Rail model or its track_start/track_end markers were not found" << std::endl;
     } else {
-        const glm::vec3 firstPieceCenter(0.0f, 0.0f,
-            -0.5f * trackPieceLength * (trackPieceCount - 1));
-        for (int i = 0; i < trackPieceCount; ++i) {
-            const glm::vec3 center = firstPieceCenter + glm::vec3(0.0f, 0.0f, i * trackPieceLength);
-            const glm::mat4 instanceTransform = glm::scale(
-                glm::translate(glm::mat4(1.0f), center), glm::vec3(assetScale));
+        glm::vec3 cursor(0.0f, 0.0f, -0.5f * trackPieceLength);
+        float headingRadians = 0.0f;
+        float routeDistance = 0.0f;
+
+        auto appendPiece = [&](float headingDeltaAfterPiece) {
+            const glm::vec3 direction(std::sin(headingRadians), 0.0f, std::cos(headingRadians));
+            const glm::vec3 start = cursor;
+            const glm::vec3 end = start + direction * trackPieceLength;
+            const glm::vec3 center = start + direction * (0.5f * trackPieceLength);
+            const glm::mat4 instanceTransform = createTrackAlignedTransform(center, direction, assetScale);
             trackSegments.push_back({
                 instanceTransform,
-                glm::vec3(instanceTransform * glm::vec4(rail.markers["track_start"], 1.0f)),
-                glm::vec3(instanceTransform * glm::vec4(rail.markers["track_end"], 1.0f))
+                start,
+                end,
+                direction,
+                trackPieceLength,
+                routeDistance
+            });
+            cursor = end;
+            routeDistance += trackPieceLength;
+            headingRadians += headingDeltaAfterPiece;
+        };
+
+        for (int i = 0; i < straightBeforeCurvePieces; ++i) appendPiece(0.0f);
+        for (int i = 0; i < firstCurvePieces; ++i) appendPiece(quarterTurnRadians / firstCurvePieces);
+        for (int i = 0; i < straightAfterCurvePieces; ++i) appendPiece(0.0f);
+        for (int i = 0; i < secondCurvePieces; ++i) appendPiece(-quarterTurnRadians / secondCurvePieces);
+
+        std::cout << "Built test track: " << routeDistance
+                  << " m (" << trackSegments.size() << " connected pieces)" << std::endl;
+
+        for (float routePosition = jointSoundIntervalMeters;
+             routePosition < routeDistance;
+             routePosition += jointSoundIntervalMeters) {
+            const RouteSample jointSample = sampleTrackRoute(routePosition);
+            trackJointSounds.push_back({
+                jointSample.position,
+                routePosition
             });
         }
-        std::cout << "Built test track: " << trackSegments.size() * trackPieceLength
-                  << " m (" << trackSegments.size() << " connected pieces)" << std::endl;
+        std::cout << "Prepared " << trackJointSounds.size() << " rail joint sound points every "
+                  << jointSoundIntervalMeters << " m" << std::endl;
+    }
+
+    if (audioAvailable) {
+        const fs::path jointSoundPath = fs::exists("rails/joint.wav")
+            ? fs::path("rails/joint.wav")
+            : fs::path("rails/joint.mp3");
+        trainAudio.loadOneShotBuffer(jointSoundPath, jointSoundBuffer, jointSoundDurationSeconds);
     }
 
     // Each directory below trains/ is an independent train package.  Its model,
@@ -989,23 +1226,29 @@ int main() {
                           << configuration->weightTonnes << " t, maximum "
                           << configuration->maxSpeedKmh << " km/h" << std::endl;
             }
-            // Put the locomotive onto the route by matching its Pivot_back to
-            // the straight line defined by the rail endpoint markers.
+            // Put the locomotive onto the segmented route by matching its
+            // Pivot_back height to the rail line. Horizontal position and yaw
+            // come from sampleTrackRoute(), which works for both straights and
+            // curved chains of 5 m pieces.
             const glm::vec3 pivotBack = train.markers.count("pivot_back")
                 ? train.markers["pivot_back"] : glm::vec3(0.0f);
             const float lineHeight = trackSegments.empty() ? 0.0f : trackSegments.front().start.y;
             train.routeStart = trackSegments.empty() ? glm::vec3(0.0f) : trackSegments.front().start;
-            train.routeEnd = trackSegments.size() > 1 ? trackSegments[trackSegments.size() - 2].end
+            train.routeEnd = trackSegments.size() > 1 ? trackSegments.back().end
                 : (trackSegments.empty() ? glm::vec3(0.0f, 0.0f, trackPieceLength) : trackSegments.back().end);
             train.routeStart.y = lineHeight - assetScale * pivotBack.y;
             train.routeEnd.y = train.routeStart.y;
-            train.routeDistance = glm::length(train.routeEnd - train.routeStart);
-            train.routeDirection = train.routeDistance > 0.0f ? glm::normalize(train.routeEnd - train.routeStart) : glm::vec3(0.0f, 0.0f, 1.0f);
+            train.routeDistance = trackSegments.empty()
+                ? 0.0f
+                : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
             train.routePosition = 0.0f;
-            train.position = train.routeStart;
-            train.transform = glm::translate(glm::mat4(1.0f), train.position);
+            train.previousRoutePosition = train.routePosition;
+            const RouteSample initialSample = sampleTrackRoute(train.routePosition);
+            train.routeDirection = initialSample.direction;
+            train.position = initialSample.position;
+            train.position.y = train.routeStart.y;
             train.scale = assetScale;
-            train.transform = glm::scale(train.transform, glm::vec3(train.scale));
+            train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
             train.transform *= train.sourceTransform;
             if (audioAvailable && configuration && !configuration->engineSound.empty()) {
                 const fs::path soundPath = trainDirectory / "sounds" / configuration->engineSound;
@@ -1069,7 +1312,8 @@ int main() {
             updateTrainMotion(train, deltaTime);
             trainAudio.updateEngine(train, cameraPos);
         }
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        updateTrackJointSounds(trainAudio);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 800.0f);
 
         // === РИСУЕМ ПЛОСКОСТЬ ===
         glUseProgram(planeShader);
@@ -1087,7 +1331,7 @@ int main() {
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
-        // === РИСУЕМ ТЕСТОВЫЙ ПУТЬ: 10 СЕКЦИЙ ПО 5 МЕТРОВ ===
+        // === РИСУЕМ ТЕСТОВЫЙ ПУТЬ: 100 СЕКЦИЙ ПО 5 МЕТРОВ ===
         for (const auto& segment : trackSegments) {
             const glm::mat4 railTransform = segment.transform * rail.sourceTransform;
             glUniformMatrix4fv(glGetUniformLocation(modelShader, "model"), 1, GL_FALSE,
@@ -1111,6 +1355,8 @@ int main() {
         trainAudio.release(train);
         train.cleanup();
     }
+    trainAudio.releaseSources(activeJointSoundSources);
+    trainAudio.releaseBuffer(jointSoundBuffer);
     trainAudio.shutdown();
     rail.cleanup();
     glDeleteVertexArrays(1, &planeVAO);
