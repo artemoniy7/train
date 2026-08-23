@@ -527,28 +527,65 @@ bool trackBuildMode = false;
 TrackBuildTool trackBuildTool = TrackBuildTool::Straight;
 std::optional<glm::vec3> trackBuildStart;
 std::optional<float> trackBuildStartHeading;
+bool trackBuildStartIsConnected = false;
 bool previousHPressed = false;
 bool previousIPressed = false;
 bool previousJPressed = false;
 bool previousLeftMousePressed = false;
 bool previousRightMousePressed = false;
+bool routeBuildMode = false;
+bool previousPPressed = false;
+bool previousXPressed = false;
+bool previousRouteLeftMousePressed = false;
+bool customRouteClosed = false;
+bool customRouteChanged = false;
+std::vector<glm::vec3> customRoutePoints;
+std::optional<float> customRouteFirstTrackDistance;
+std::optional<float> customRouteLastTrackDistance;
 
 constexpr float trackSnapDistanceMeters = 1.25f;
-constexpr float trackCenterSnapDistanceMeters = 0.65f;
+constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
+constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
+constexpr float minimumCurveRadiusMeters = 20.0f;
+constexpr float routeCloseSnapDistanceMeters = 1.25f;
+constexpr float routeSnapDistanceMeters = 3.0f;
 
-enum class TrackBuildTool { Straight, Curve };
+bool saveTrackMap() {
+    const fs::path mapDirectory = "maps";
+    const fs::path mapPath = mapDirectory / "latest_track_map.json";
+    std::error_code error;
+    fs::create_directories(mapDirectory, error);
+    if (error) {
+        std::cout << "Cannot create map directory " << mapDirectory << ": "
+                  << error.message() << std::endl;
+        return false;
+    }
 
-bool trackBuildMode = false;
-TrackBuildTool trackBuildTool = TrackBuildTool::Straight;
-std::optional<glm::vec3> trackBuildStart;
-std::optional<float> trackBuildStartHeading;
-bool previousHPressed = false;
-bool previousIPressed = false;
-bool previousJPressed = false;
-bool previousLeftMousePressed = false;
-bool previousRightMousePressed = false;
+    nlohmann::json map = {
+        {"format", "train-simulator-track-map"},
+        {"version", 1},
+        {"segments", nlohmann::json::array()}
+    };
+    for (const TrackSegment& segment : trackSegments) {
+        map["segments"].push_back({
+            {"start", {segment.start.x, segment.start.y, segment.start.z}},
+            {"end", {segment.end.x, segment.end.y, segment.end.z}},
+            {"start_heading_radians", segment.startHeadingRadians},
+            {"curvature_radians_per_meter", segment.curvatureRadiansPerMeter},
+            {"length_meters", segment.length}
+        });
+    }
 
-constexpr float trackSnapDistanceMeters = 1.25f;
+    std::ofstream output(mapPath);
+    if (!output) {
+        std::cout << "Cannot save track map to " << mapPath << std::endl;
+        return false;
+    }
+    output << map.dump(2) << '\n';
+    std::cout << "Track map saved to " << mapPath << " ("
+              << trackSegments.size() << " segments)" << std::endl;
+    return true;
+}
 
 // Обработчики GLFW
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -919,26 +956,9 @@ const char* previewVertexShader = R"(
 const char* previewFragmentShader = R"(
     #version 330 core
     out vec4 FragColor;
+    uniform vec3 previewColor;
     void main() {
-        FragColor = vec4(0.1, 1.0, 0.15, 1.0);
-    }
-)";
-
-const char* previewVertexShader = R"(
-    #version 330 core
-    layout (location = 0) in vec3 aPos;
-    uniform mat4 view;
-    uniform mat4 projection;
-    void main() {
-        gl_Position = projection * view * vec4(aPos, 1.0);
-    }
-)";
-
-const char* previewFragmentShader = R"(
-    #version 330 core
-    out vec4 FragColor;
-    void main() {
-        FragColor = vec4(0.1, 1.0, 0.15, 1.0);
+        FragColor = vec4(previewColor, 1.0);
     }
 )";
 
@@ -1008,8 +1028,9 @@ unsigned int previewVAO = 0;
 unsigned int previewVBO = 0;
 
 void drawTrackPreview(unsigned int shaderProgram, const std::vector<glm::vec3>& points,
-                      const glm::mat4& view, const glm::mat4& projection) {
-    if (points.size() < 2) return;
+                      const glm::mat4& view, const glm::mat4& projection,
+                      const glm::vec3& color) {
+    if (points.empty()) return;
     if (previewVAO == 0) {
         glGenVertexArrays(1, &previewVAO);
         glGenBuffers(1, &previewVBO);
@@ -1018,13 +1039,19 @@ void drawTrackPreview(unsigned int shaderProgram, const std::vector<glm::vec3>& 
     glUseProgram(shaderProgram);
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform3fv(glGetUniformLocation(shaderProgram, "previewColor"), 1, glm::value_ptr(color));
     glBindVertexArray(previewVAO);
     glBindBuffer(GL_ARRAY_BUFFER, previewVBO);
     glBufferData(GL_ARRAY_BUFFER, points.size() * sizeof(glm::vec3), points.data(), GL_DYNAMIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), nullptr);
     glEnableVertexAttribArray(0);
-    glLineWidth(4.0f);
-    glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(points.size()));
+    if (points.size() == 1) {
+        glPointSize(12.0f);
+        glDrawArrays(GL_POINTS, 0, 1);
+    } else {
+        glLineWidth(4.0f);
+        glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(points.size()));
+    }
     glBindVertexArray(0);
 }
 
@@ -1106,49 +1133,85 @@ glm::mat4 createTrackAlignedTransform(
     return transform;
 }
 
+bool loadTrackMap(float assetScale) {
+    const fs::path mapPath = fs::path("maps") / "latest_track_map.json";
+    if (!fs::exists(mapPath)) return false;
+
+    try {
+        std::ifstream input(mapPath);
+        nlohmann::json map;
+        input >> map;
+        if (map.value("format", "") != "train-simulator-track-map" ||
+            map.value("version", 0) != 1 || !map.contains("segments") ||
+            !map["segments"].is_array()) {
+            std::cout << "Ignoring invalid track map " << mapPath << std::endl;
+            return false;
+        }
+
+        std::vector<TrackSegment> loadedSegments;
+        float routeDistance = 0.0f;
+        for (const nlohmann::json& entry : map["segments"]) {
+            const auto& start = entry.at("start");
+            const auto& end = entry.at("end");
+            const float length = entry.at("length_meters").get<float>();
+            if (start.size() != 3 || end.size() != 3 || length <= 0.0f) continue;
+            const glm::vec3 startPoint(start[0].get<float>(), start[1].get<float>(), start[2].get<float>());
+            const glm::vec3 endPoint(end[0].get<float>(), end[1].get<float>(), end[2].get<float>());
+            const float heading = entry.at("start_heading_radians").get<float>();
+            const float curvature = entry.at("curvature_radians_per_meter").get<float>();
+            const float midpointHeading = heading + curvature * length * 0.5f;
+            glm::vec3 center = (startPoint + endPoint) * 0.5f;
+            if (std::abs(curvature) >= 0.000001f) {
+                const float inverseCurvature = 1.0f / curvature;
+                center = startPoint + glm::vec3(
+                    (std::cos(heading) - std::cos(midpointHeading)) * inverseCurvature, 0.0f,
+                    (std::sin(midpointHeading) - std::sin(heading)) * inverseCurvature);
+            }
+            glm::mat4 transform = createTrackAlignedTransform(
+                center, glm::vec3(std::sin(midpointHeading), 0.0f, std::cos(midpointHeading)), assetScale);
+            transform = glm::scale(transform, glm::vec3(1.0f, 1.0f, length / 5.0f));
+            loadedSegments.push_back({transform, startPoint, endPoint, heading, curvature, length, routeDistance});
+            routeDistance += length;
+        }
+        if (loadedSegments.empty()) return false;
+        trackSegments = std::move(loadedSegments);
+        std::cout << "Loaded track map " << mapPath << " (" << trackSegments.size() << " segments)" << std::endl;
+        return true;
+    } catch (const std::exception& error) {
+        std::cout << "Cannot load track map " << mapPath << ": " << error.what() << std::endl;
+        return false;
+    }
+}
+
 struct TrackConnection {
     glm::vec3 position;
     std::optional<float> heading;
+    bool isConnected = false;
 };
 
 TrackConnection snapTrackConnection(const glm::vec3& position) {
-    TrackConnection centerConnection{position, std::nullopt};
-    float centerDistance = trackCenterSnapDistanceMeters;
+    TrackConnection closest{position, std::nullopt, false};
+    float closestDistance = routeSnapDistanceMeters;
     for (const TrackSegment& segment : trackSegments) {
-        const float midpointDistance = segment.length * 0.5f;
-        const float midpointHeading = segment.startHeadingRadians +
-            segment.curvatureRadiansPerMeter * midpointDistance;
-        glm::vec3 midpoint;
-        if (std::abs(segment.curvatureRadiansPerMeter) < 0.000001f) {
-            midpoint = segment.start + glm::vec3(
-                std::sin(segment.startHeadingRadians), 0.0f,
-                std::cos(segment.startHeadingRadians)) * midpointDistance;
-        } else {
-            const float inverseCurvature = 1.0f / segment.curvatureRadiansPerMeter;
-            midpoint = segment.start + glm::vec3(
-                (std::cos(segment.startHeadingRadians) - std::cos(midpointHeading)) * inverseCurvature,
-                0.0f,
-                (std::sin(midpointHeading) - std::sin(segment.startHeadingRadians)) * inverseCurvature);
-        }
-        const float distance = glm::length(position - midpoint);
-        if (distance < centerDistance) {
-            centerConnection = {midpoint, midpointHeading};
-            centerDistance = distance;
-        }
-    }
-    if (centerConnection.heading) return centerConnection;
-
-    TrackConnection closest{position, std::nullopt};
-    float closestDistance = trackSnapDistanceMeters;
-    for (const TrackSegment& segment : trackSegments) {
-        const float distance = glm::length(position - segment.end);
-        if (distance < closestDistance) {
-            closest = {segment.end, segment.startHeadingRadians +
-                segment.curvatureRadiansPerMeter * segment.length};
-            closestDistance = distance;
+        const float endHeading = segment.startHeadingRadians +
+            segment.curvatureRadiansPerMeter * segment.length;
+        const std::array<TrackConnection, 2> endpoints{{
+            {segment.start, segment.startHeadingRadians + glm::pi<float>(), true},
+            {segment.end, endHeading, true}
+        }};
+        for (const TrackConnection& endpoint : endpoints) {
+            const float distance = glm::length(position - endpoint.position);
+            if (distance < closestDistance) {
+                closest = endpoint;
+                closestDistance = distance;
+            }
         }
     }
     return closest;
+}
+
+float absoluteAngleDifference(float first, float second) {
+    return std::abs(std::atan2(std::sin(first - second), std::cos(first - second)));
 }
 
 std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec3& end,
@@ -1162,9 +1225,13 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
     float heading = startHeading.value_or(std::atan2(offset.x, offset.z));
     float curvature = 0.0f;
     float totalLength = chordLength;
+    const float chordHeading = std::atan2(offset.x, offset.z);
+    if (tool == TrackBuildTool::Straight && startHeading &&
+        absoluteAngleDifference(heading, chordHeading) > maximumStraightJoinAngleRadians) {
+        return {};
+    }
     if (tool == TrackBuildTool::Curve) {
         if (endHeading) {
-            const float chordHeading = std::atan2(offset.x, offset.z);
             const float reversedHeading = *endHeading + glm::pi<float>();
             const float selectedEndHeading = std::abs(std::atan2(
                 std::sin(*endHeading - chordHeading), std::cos(*endHeading - chordHeading)))
@@ -1201,6 +1268,11 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
             }
         }
         if (totalLength < 0.05f) curvature = 0.0f;
+        const float curveTurn = std::abs(curvature * totalLength);
+        if (std::abs(curvature) > 1.0f / minimumCurveRadiusMeters ||
+            curveTurn > maximumCurveTurnRadians) {
+            return {};
+        }
     }
 
     const int pieceCount = std::max(1, static_cast<int>(std::ceil(totalLength / 5.0f)));
@@ -1258,103 +1330,103 @@ std::optional<glm::vec3> cursorGroundPosition(GLFWwindow* window, const glm::mat
     return glm::vec3(nearPoint) + rayDirection * distance;
 }
 
-struct TrackConnection {
+float customRouteLength() {
+    if (customRoutePoints.size() < 2) return 0.0f;
+    float length = 0.0f;
+    for (size_t i = 1; i < customRoutePoints.size(); ++i) {
+        length += glm::length(customRoutePoints[i] - customRoutePoints[i - 1]);
+    }
+    if (customRouteClosed) length += glm::length(customRoutePoints.front() - customRoutePoints.back());
+    return length;
+}
+
+RouteSample sampleCustomRoute(float routePosition) {
+    const float length = customRouteLength();
+    if (length <= 0.0f) return {};
+    float remaining = customRouteClosed ? std::fmod(std::max(routePosition, 0.0f), length)
+                                        : std::clamp(routePosition, 0.0f, length);
+    const size_t segmentCount = customRoutePoints.size() - 1 + (customRouteClosed ? 1 : 0);
+    for (size_t i = 0; i < segmentCount; ++i) {
+        const glm::vec3& start = customRoutePoints[i];
+        const glm::vec3& end = customRoutePoints[(i + 1) % customRoutePoints.size()];
+        const glm::vec3 offset = end - start;
+        const float segmentLength = glm::length(offset);
+        if (segmentLength <= 0.0001f) continue;
+        if (remaining <= segmentLength || i + 1 == segmentCount) {
+            return {start + offset * (remaining / segmentLength), offset / segmentLength};
+        }
+        remaining -= segmentLength;
+    }
+    return {customRoutePoints.back(), glm::normalize(customRoutePoints.back() - customRoutePoints.front())};
+}
+
+RouteSample sampleActiveRoute(float routePosition) {
+    return customRoutePoints.size() >= 2 ? sampleCustomRoute(routePosition)
+                                         : sampleTrackRoute(routePosition);
+}
+
+struct RoutePoint {
     glm::vec3 position;
-    std::optional<float> heading;
+    float trackDistance = 0.0f;
 };
 
-TrackConnection snapTrackConnection(const glm::vec3& position) {
-    TrackConnection closest{position, std::nullopt};
+std::optional<RoutePoint> snapRoutePoint(const glm::vec3& position) {
+    std::optional<RoutePoint> closest;
     float closestDistance = trackSnapDistanceMeters;
     for (const TrackSegment& segment : trackSegments) {
-        const float distance = glm::length(position - segment.end);
+        const glm::vec3 offset = segment.end - segment.start;
+        const float squaredLength = glm::dot(offset, offset);
+        if (squaredLength <= 0.0001f) continue;
+        const float t = std::clamp(glm::dot(position - segment.start, offset) / squaredLength, 0.0f, 1.0f);
+        const glm::vec3 projected = segment.start + offset * t;
+        const float distance = glm::length(position - projected);
         if (distance < closestDistance) {
-            closest = {segment.end, segment.startHeadingRadians +
-                segment.curvatureRadiansPerMeter * segment.length};
+            closest = {projected, segment.distanceFromRouteStart + t * segment.length};
             closestDistance = distance;
         }
     }
     return closest;
 }
 
-std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec3& end,
-                                          std::optional<float> startHeading, TrackBuildTool tool,
-                                          float assetScale, float routeDistance) {
-    const glm::vec3 offset = end - start;
-    const float chordLength = glm::length(glm::vec2(offset.x, offset.z));
-    if (chordLength < 0.05f) return {};
-
-    float heading = startHeading.value_or(std::atan2(offset.x, offset.z));
-    float curvature = 0.0f;
-    float totalLength = chordLength;
-    if (tool == TrackBuildTool::Curve) {
-        const glm::vec3 normal(std::cos(heading), 0.0f, -std::sin(heading));
-        curvature = 2.0f * glm::dot(offset, normal) / (chordLength * chordLength);
-        if (std::abs(curvature) > 0.0001f) {
-            const glm::vec3 center = start + normal / curvature;
-            const glm::vec3 fromCenterStart = start - center;
-            const glm::vec3 fromCenterEnd = end - center;
-            const float turn = std::atan2(
-                fromCenterStart.x * fromCenterEnd.z - fromCenterStart.z * fromCenterEnd.x,
-                glm::dot(fromCenterStart, fromCenterEnd));
-            totalLength = std::abs(turn / curvature);
-            if (totalLength < 0.05f) curvature = 0.0f;
-        }
+void appendTrackPath(std::vector<glm::vec3>& points, float fromDistance, float toDistance) {
+    const float distance = std::abs(toDistance - fromDistance);
+    const int stepCount = std::max(1, static_cast<int>(std::ceil(distance)));
+    for (int step = 0; step <= stepCount; ++step) {
+        const float fraction = static_cast<float>(step) / stepCount;
+        const glm::vec3 point = sampleTrackRoute(fromDistance + (toDistance - fromDistance) * fraction).position;
+        if (points.empty() || glm::length(points.back() - point) > 0.001f) points.push_back(point);
     }
-
-    const int pieceCount = std::max(1, static_cast<int>(std::ceil(totalLength / 5.0f)));
-    const float pieceLength = totalLength / pieceCount;
-    std::vector<TrackSegment> pieces;
-    pieces.reserve(pieceCount);
-    glm::vec3 cursor = start;
-    for (int i = 0; i < pieceCount; ++i) {
-        const float endHeading = heading + curvature * pieceLength;
-        const float midpointHeading = (heading + endHeading) * 0.5f;
-        glm::vec3 pieceEnd;
-        glm::vec3 center;
-        if (std::abs(curvature) < 0.000001f) {
-            const glm::vec3 direction(std::sin(heading), 0.0f, std::cos(heading));
-            pieceEnd = cursor + direction * pieceLength;
-            center = cursor + direction * (pieceLength * 0.5f);
-        } else {
-            const float inverseCurvature = 1.0f / curvature;
-            pieceEnd = cursor + glm::vec3(
-                (std::cos(heading) - std::cos(endHeading)) * inverseCurvature, 0.0f,
-                (std::sin(endHeading) - std::sin(heading)) * inverseCurvature);
-            center = cursor + glm::vec3(
-                (std::cos(heading) - std::cos(midpointHeading)) * inverseCurvature, 0.0f,
-                (std::sin(midpointHeading) - std::sin(heading)) * inverseCurvature);
-        }
-        const glm::vec3 midpointDirection(std::sin(midpointHeading), 0.0f, std::cos(midpointHeading));
-        glm::mat4 transform = createTrackAlignedTransform(center, midpointDirection, assetScale);
-        transform = glm::scale(transform, glm::vec3(1.0f, 1.0f, pieceLength / 5.0f));
-        pieces.push_back({transform, cursor, pieceEnd, heading, curvature, pieceLength,
-                          routeDistance + i * pieceLength});
-        cursor = pieceEnd;
-        heading = endHeading;
-    }
-    return pieces;
 }
 
-std::optional<glm::vec3> cursorGroundPosition(GLFWwindow* window, const glm::mat4& view,
-                                              const glm::mat4& projection) {
-    double cursorX, cursorY;
-    glfwGetCursorPos(window, &cursorX, &cursorY);
-    int width, height;
-    glfwGetFramebufferSize(window, &width, &height);
-    if (width == 0 || height == 0) return std::nullopt;
-    const float x = 2.0f * static_cast<float>(cursorX) / width - 1.0f;
-    const float y = 1.0f - 2.0f * static_cast<float>(cursorY) / height;
-    const glm::mat4 inverseViewProjection = glm::inverse(projection * view);
-    glm::vec4 nearPoint = inverseViewProjection * glm::vec4(x, y, -1.0f, 1.0f);
-    glm::vec4 farPoint = inverseViewProjection * glm::vec4(x, y, 1.0f, 1.0f);
-    nearPoint /= nearPoint.w;
-    farPoint /= farPoint.w;
-    const glm::vec3 rayDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
-    if (std::abs(rayDirection.y) < 0.0001f) return std::nullopt;
-    const float distance = -nearPoint.y / rayDirection.y;
-    if (distance < 0.0f) return std::nullopt;
-    return glm::vec3(nearPoint) + rayDirection * distance;
+void clearCustomRoute() {
+    customRoutePoints.clear();
+    customRouteClosed = false;
+    customRouteFirstTrackDistance.reset();
+    customRouteLastTrackDistance.reset();
+    customRouteChanged = true;
+}
+
+void applyCustomRouteToTrains() {
+    if (!customRouteChanged) return;
+    const bool hasCustomRoute = customRoutePoints.size() >= 2;
+    const float length = hasCustomRoute ? customRouteLength()
+        : (trackSegments.empty() ? 0.0f : trackSegments.back().distanceFromRouteStart + trackSegments.back().length);
+    for (Model& train : trains) {
+        train.routeDistance = length;
+        train.routePosition = 0.0f;
+        train.previousRoutePosition = 0.0f;
+        train.routeVelocity = 0.0f;
+        train.motionDirection = 1.0f;
+        if (length > 0.0f) {
+            const RouteSample sample = hasCustomRoute ? sampleCustomRoute(0.0f) : sampleTrackRoute(0.0f);
+            train.routeDirection = sample.direction;
+            train.position = sample.position;
+            train.position.y = train.routeStart.y;
+            train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
+            train.transform *= train.sourceTransform;
+        }
+    }
+    customRouteChanged = false;
 }
 
 void updateTrainMotion(Model& train, float dt) {
@@ -1364,12 +1436,17 @@ void updateTrainMotion(Model& train, float dt) {
     const float maxSpeed = train.maxSpeedKmh > 0.0f ? train.maxSpeedKmh / 3.6f : fallbackMaxSpeed;
     const float acceleration = train.accelerationMs2 > 0.0f ? train.accelerationMs2 : 0.5f;
     const float brakeDeceleration = train.brakeDecelerationMs2 > 0.0f ? train.brakeDecelerationMs2 : acceleration;
+    const bool isClosedRoute = customRouteClosed && customRoutePoints.size() >= 3;
     const float targetPosition = train.motionDirection > 0.0f ? train.routeDistance : 0.0f;
     const float distanceToTarget = std::abs(targetPosition - train.routePosition);
     const float stoppingDistance = (train.routeVelocity * train.routeVelocity) / (2.0f * brakeDeceleration);
 
     float signedAcceleration = 0.0f;
-    if (distanceToTarget <= 0.02f && std::abs(train.routeVelocity) < 0.05f) {
+    if (isClosedRoute) {
+        if (std::abs(train.routeVelocity) < maxSpeed) {
+            signedAcceleration = acceleration * train.motionDirection;
+        }
+    } else if (distanceToTarget <= 0.02f && std::abs(train.routeVelocity) < 0.05f) {
         train.routePosition = targetPosition;
         train.routeVelocity = 0.0f;
         train.motionDirection *= -1.0f;
@@ -1383,11 +1460,17 @@ void updateTrainMotion(Model& train, float dt) {
     if (train.routeVelocity * train.motionDirection < 0.0f) train.routeVelocity = 0.0f;
     train.routeVelocity = std::clamp(train.routeVelocity, -maxSpeed, maxSpeed);
     train.previousRoutePosition = train.routePosition;
-    train.routePosition = std::clamp(train.routePosition + train.routeVelocity * dt, 0.0f, train.routeDistance);
+    train.routePosition += train.routeVelocity * dt;
+    if (isClosedRoute) {
+        train.routePosition = std::fmod(train.routePosition, train.routeDistance);
+        if (train.routePosition < 0.0f) train.routePosition += train.routeDistance;
+    } else {
+        train.routePosition = std::clamp(train.routePosition, 0.0f, train.routeDistance);
+    }
     train.engineThrottle = signedAcceleration * train.motionDirection > 0.0f ? 1.0f
         : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
 
-    const RouteSample sample = sampleTrackRoute(train.routePosition);
+    const RouteSample sample = sampleActiveRoute(train.routePosition);
     train.routeDirection = sample.direction;
     train.position = sample.position;
     train.position.y = train.routeStart.y;
@@ -1491,7 +1574,7 @@ int main() {
     if (rail.meshes.empty() || rail.markers.count("track_start") == 0 ||
         rail.markers.count("track_end") == 0) {
         std::cout << "Rail model or its markers were not found" << std::endl;
-    } else {
+    } else if (!loadTrackMap(assetScale)) {
         glm::vec3 cursor(0.0f, 0.0f, 0.0f);
         float headingRadians = 0.0f;
         float routeDistance = 0.0f;
@@ -1546,14 +1629,15 @@ int main() {
         std::cout << "Built test track: " << routeDistance
                   << " m (" << trackSegments.size() << " connected pieces)" << std::endl;
 
+    }
+
+    if (!trackSegments.empty()) {
+        const float routeDistance = trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
         for (float routePosition = jointSoundIntervalMeters;
              routePosition < routeDistance;
              routePosition += jointSoundIntervalMeters) {
             const RouteSample jointSample = sampleTrackRoute(routePosition);
-            trackJointSounds.push_back({
-                jointSample.position,
-                routePosition
-            });
+            trackJointSounds.push_back({jointSample.position, routePosition});
         }
         std::cout << "Prepared " << trackJointSounds.size() << " rail joint sound points" << std::endl;
     }
@@ -1653,14 +1737,17 @@ int main() {
         if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
             cameraPos.y -= speed;
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            saveTrackMap();
             glfwSetWindowShouldClose(window, true);
         }
 
         const bool hPressed = glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS;
         if (hPressed && !previousHPressed) {
             trackBuildMode = !trackBuildMode;
+            if (trackBuildMode) routeBuildMode = false;
             trackBuildStart.reset();
             trackBuildStartHeading.reset();
+            trackBuildStartIsConnected = false;
             glfwSetInputMode(window, GLFW_CURSOR,
                              trackBuildMode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             firstMouse = true;
@@ -1669,27 +1756,28 @@ int main() {
         }
         previousHPressed = hPressed;
 
-        if (trackBuildMode) {
-            const bool iPressed = glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS;
-            const bool jPressed = glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS;
-            if (iPressed && !previousIPressed) trackBuildTool = TrackBuildTool::Straight;
-            if (jPressed && !previousJPressed) trackBuildTool = TrackBuildTool::Curve;
-            previousIPressed = iPressed;
-            previousJPressed = jPressed;
-        }
-
-        const bool hPressed = glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS;
-        if (hPressed && !previousHPressed) {
-            trackBuildMode = !trackBuildMode;
-            trackBuildStart.reset();
-            trackBuildStartHeading.reset();
+        const bool pPressed = glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS;
+        if (pPressed && !previousPPressed) {
+            routeBuildMode = !routeBuildMode;
+            if (routeBuildMode) trackBuildMode = false;
+            if (routeBuildMode && customRouteClosed) {
+                clearCustomRoute();
+            }
             glfwSetInputMode(window, GLFW_CURSOR,
-                             trackBuildMode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+                             (trackBuildMode || routeBuildMode) ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             firstMouse = true;
-            std::cout << (trackBuildMode ? "Track builder: I - straight, J - curve, left click - select/build, right click - cancel"
-                                         : "Track builder closed") << std::endl;
+            std::cout << (routeBuildMode
+                ? "Route builder: left click on rails to trace them; click the first point to close; X clears the route"
+                : "Route builder closed") << std::endl;
         }
-        previousHPressed = hPressed;
+        previousPPressed = pPressed;
+
+        const bool xPressed = glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS;
+        if (xPressed && !previousXPressed) {
+            clearCustomRoute();
+            std::cout << "Custom route cleared" << std::endl;
+        }
+        previousXPressed = xPressed;
 
         if (trackBuildMode) {
             const bool iPressed = glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS;
@@ -1706,6 +1794,7 @@ int main() {
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         trainAudio.updateListener(cameraPos, cameraFront, cameraUp);
 
+        applyCustomRouteToTrains();
         for (auto& train : trains) {
             updateTrainMotion(train, deltaTime);
             trainAudio.updateEngine(train, cameraPos);
@@ -1715,55 +1804,44 @@ int main() {
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 800.0f);
 
         std::vector<glm::vec3> previewPoints;
-        if (trackBuildMode) {
+        std::vector<glm::vec3> routePreviewPoints = customRoutePoints;
+        if (routeBuildMode) {
             const auto cursorPosition = cursorGroundPosition(window, view, projection);
             const bool leftPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             const bool rightPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-            if (rightPressed && !previousRightMousePressed) {
-                trackBuildStart.reset();
-                trackBuildStartHeading.reset();
+            if (rightPressed && !previousRightMousePressed && !customRoutePoints.empty()) {
+                clearCustomRoute();
             }
             if (cursorPosition) {
-                const TrackConnection target = snapTrackConnection(*cursorPosition);
-                if (leftPressed && !previousLeftMousePressed) {
-                    if (!trackBuildStart) {
-                        trackBuildStart = target.position;
-                        trackBuildStartHeading = target.heading;
-                    } else {
-                        const float routeDistance = trackSegments.empty() ? 0.0f
-                            : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                        std::vector<TrackSegment> pieces = makeTrackPieces(
-                            *trackBuildStart, target.position, trackBuildStartHeading,
-                            trackBuildTool, target.heading, assetScale, routeDistance);
-                        if (!pieces.empty()) {
-                            const TrackSegment& lastPiece = pieces.back();
-                            trackBuildStart = lastPiece.end;
-                            trackBuildStartHeading = lastPiece.startHeadingRadians +
-                                lastPiece.curvatureRadiansPerMeter * lastPiece.length;
-                            trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
+                const auto snappedPoint = snapRoutePoint(*cursorPosition);
+                if (snappedPoint) {
+                    if (leftPressed && !previousRouteLeftMousePressed) {
+                        if (customRouteFirstTrackDistance && customRouteLastTrackDistance &&
+                            glm::length(snappedPoint->position - customRoutePoints.front()) < routeCloseSnapDistanceMeters) {
+                            appendTrackPath(customRoutePoints, *customRouteLastTrackDistance,
+                                            *customRouteFirstTrackDistance);
+                            customRouteClosed = true;
+                        } else if (!customRouteClosed) {
+                            if (!customRouteLastTrackDistance) {
+                                customRoutePoints.push_back(snappedPoint->position);
+                                customRouteFirstTrackDistance = snappedPoint->trackDistance;
+                                std::cout << "Route start selected" << std::endl;
+                            } else {
+                                appendTrackPath(customRoutePoints, *customRouteLastTrackDistance,
+                                                snappedPoint->trackDistance);
+                                std::cout << "Route extended along rails" << std::endl;
+                            }
+                            customRouteLastTrackDistance = snappedPoint->trackDistance;
                         }
-                    }
-                }
-                if (trackBuildStart) {
-                    const float routeDistance = trackSegments.empty() ? 0.0f
-                        : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                    const std::vector<TrackSegment> previewPieces = makeTrackPieces(
-                        *trackBuildStart, target.position, trackBuildStartHeading,
-                        trackBuildTool, target.heading, assetScale, routeDistance);
-                    for (const TrackSegment& piece : previewPieces) {
-                        if (previewPoints.empty()) previewPoints.push_back(piece.start + glm::vec3(0.0f, 0.03f, 0.0f));
-                        previewPoints.push_back(piece.end + glm::vec3(0.0f, 0.03f, 0.0f));
+                        customRouteChanged = true;
                     }
                 }
             }
-            previousLeftMousePressed = leftPressed;
+            previousRouteLeftMousePressed = leftPressed;
             previousRightMousePressed = rightPressed;
         } else {
-            previousLeftMousePressed = false;
-            previousRightMousePressed = false;
+            previousRouteLeftMousePressed = false;
         }
-
-        std::vector<glm::vec3> previewPoints;
         if (trackBuildMode) {
             const auto cursorPosition = cursorGroundPosition(window, view, projection);
             const bool leftPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
@@ -1771,6 +1849,7 @@ int main() {
             if (rightPressed && !previousRightMousePressed) {
                 trackBuildStart.reset();
                 trackBuildStartHeading.reset();
+                trackBuildStartIsConnected = false;
             }
             if (cursorPosition) {
                 const TrackConnection target = snapTrackConnection(*cursorPosition);
@@ -1778,17 +1857,23 @@ int main() {
                     if (!trackBuildStart) {
                         trackBuildStart = target.position;
                         trackBuildStartHeading = target.heading;
+                        trackBuildStartIsConnected = target.isConnected;
                     } else {
                         const float routeDistance = trackSegments.empty() ? 0.0f
                             : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                        std::vector<TrackSegment> pieces = makeTrackPieces(
-                            *trackBuildStart, target.position, trackBuildStartHeading,
-                            trackBuildTool, assetScale, routeDistance);
+                        std::vector<TrackSegment> pieces;
+                        if (!(trackBuildTool == TrackBuildTool::Straight &&
+                              trackBuildStartIsConnected && target.isConnected)) {
+                            pieces = makeTrackPieces(
+                                *trackBuildStart, target.position, trackBuildStartHeading,
+                                trackBuildTool, target.heading, assetScale, routeDistance);
+                        }
                         if (!pieces.empty()) {
                             const TrackSegment& lastPiece = pieces.back();
                             trackBuildStart = lastPiece.end;
                             trackBuildStartHeading = lastPiece.startHeadingRadians +
                                 lastPiece.curvatureRadiansPerMeter * lastPiece.length;
+                            trackBuildStartIsConnected = true;
                             trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
                         }
                     }
@@ -1796,9 +1881,12 @@ int main() {
                 if (trackBuildStart) {
                     const float routeDistance = trackSegments.empty() ? 0.0f
                         : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                    const std::vector<TrackSegment> previewPieces = makeTrackPieces(
-                        *trackBuildStart, target.position, trackBuildStartHeading,
-                        trackBuildTool, assetScale, routeDistance);
+                    const std::vector<TrackSegment> previewPieces =
+                        trackBuildTool == TrackBuildTool::Straight && trackBuildStartIsConnected &&
+                            target.isConnected
+                        ? std::vector<TrackSegment>{}
+                        : makeTrackPieces(*trackBuildStart, target.position, trackBuildStartHeading,
+                                          trackBuildTool, target.heading, assetScale, routeDistance);
                     for (const TrackSegment& piece : previewPieces) {
                         if (previewPoints.empty()) previewPoints.push_back(piece.start + glm::vec3(0.0f, 0.03f, 0.0f));
                         previewPoints.push_back(piece.end + glm::vec3(0.0f, 0.03f, 0.0f));
@@ -1836,9 +1924,13 @@ int main() {
             rail.draw(modelShader);
         }
 
-        drawTrackPreview(previewShader, previewPoints, view, projection);
 
-        drawTrackPreview(previewShader, previewPoints, view, projection);
+        drawTrackPreview(previewShader, previewPoints, view, projection, glm::vec3(0.1f, 1.0f, 0.15f));
+        if (!routePreviewPoints.empty()) {
+            if (customRouteClosed) routePreviewPoints.push_back(routePreviewPoints.front());
+            for (glm::vec3& point : routePreviewPoints) point.y += 0.12f;
+            drawTrackPreview(previewShader, routePreviewPoints, view, projection, glm::vec3(0.1f, 0.4f, 1.0f));
+        }
 
         // Рисуем поезда
         for (auto& train : trains) {
