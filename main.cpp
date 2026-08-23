@@ -161,6 +161,7 @@ struct Model {
     float routePosition = 0.0f;
     float routeVelocity = 0.0f;
     float motionDirection = 1.0f;
+    float routeStopTimer = 0.0f;
     float engineThrottle = 0.0f;
     float scale = 0.5f;
     unsigned int engineSoundSource = 0;
@@ -550,6 +551,9 @@ bool previousRouteLeftMousePressed = false;
 bool customRouteClosed = false;
 bool customRouteChanged = false;
 std::vector<glm::vec3> customRoutePoints;
+// Every completed route waypoint is an operational stop before the train
+// continues to the following waypoint.
+std::vector<float> customRouteStopPositions;
 std::optional<RoutePoint> customRouteFirstTrackPoint;
 std::optional<RoutePoint> customRouteLastTrackPoint;
 
@@ -562,6 +566,10 @@ constexpr float routeCloseSnapDistanceMeters = 1.25f;
 // floating point curve calculations.  This is deliberately much smaller than
 // the editor snapping radius, so nearby but unconnected rails stay separate.
 constexpr float routeJunctionToleranceMeters = 0.05f;
+// Track curves are sampled in one-metre pieces, so their adjacent samples have
+// near-identical directions.  A larger change marks a sharp rail junction.
+constexpr float routeStopDirectionChangeDotProduct = 0.95f;
+constexpr float routeReversalStopDurationSeconds = 2.0f;
 
 bool saveTrackMap() {
     const fs::path mapDirectory = "maps";
@@ -1401,6 +1409,30 @@ void appendRoutePoint(std::vector<glm::vec3>& points, const glm::vec3& point) {
     if (points.empty() || glm::length(points.back() - point) > 0.001f) points.push_back(point);
 }
 
+void addRouteDirectionChangeStops() {
+    if (customRoutePoints.size() < 3) return;
+
+    float routePosition = 0.0f;
+    for (size_t pointIndex = 1; pointIndex + 1 < customRoutePoints.size(); ++pointIndex) {
+        const glm::vec3 incoming = customRoutePoints[pointIndex] - customRoutePoints[pointIndex - 1];
+        const glm::vec3 outgoing = customRoutePoints[pointIndex + 1] - customRoutePoints[pointIndex];
+        const float incomingLength = glm::length(incoming);
+        const float outgoingLength = glm::length(outgoing);
+        routePosition += incomingLength;
+        if (incomingLength <= 0.001f || outgoingLength <= 0.001f) continue;
+
+        const float directionChange = glm::dot(incoming / incomingLength, outgoing / outgoingLength);
+        if (directionChange > routeStopDirectionChangeDotProduct) continue;
+
+        const bool isAlreadyStop = std::any_of(customRouteStopPositions.begin(), customRouteStopPositions.end(),
+            [routePosition](float stopPosition) {
+                return std::abs(stopPosition - routePosition) <= 0.02f;
+            });
+        if (!isAlreadyStop) customRouteStopPositions.push_back(routePosition);
+    }
+    std::sort(customRouteStopPositions.begin(), customRouteStopPositions.end());
+}
+
 void appendSegmentPath(std::vector<glm::vec3>& points, size_t segmentIndex,
                        float fromDistance, float toDistance) {
     const TrackSegment& segment = trackSegments[segmentIndex];
@@ -1510,6 +1542,7 @@ bool appendTrackPath(std::vector<glm::vec3>& points, const RoutePoint& from, con
 
 void clearCustomRoute() {
     customRoutePoints.clear();
+    customRouteStopPositions.clear();
     customRouteClosed = false;
     customRouteFirstTrackPoint.reset();
     customRouteLastTrackPoint.reset();
@@ -1527,6 +1560,7 @@ void applyCustomRouteToTrains() {
         train.previousRoutePosition = 0.0f;
         train.routeVelocity = 0.0f;
         train.motionDirection = 1.0f;
+        train.routeStopTimer = 0.0f;
         if (length > 0.0f) {
             const RouteSample sample = hasCustomRoute ? sampleCustomRoute(0.0f) : sampleTrackRoute(0.0f);
             train.routeDirection = sample.direction;
@@ -1547,7 +1581,35 @@ void updateTrainMotion(Model& train, float dt) {
     const float acceleration = train.accelerationMs2 > 0.0f ? train.accelerationMs2 : 0.5f;
     const float brakeDeceleration = train.brakeDecelerationMs2 > 0.0f ? train.brakeDecelerationMs2 : acceleration;
     const bool isClosedRoute = customRouteClosed && customRoutePoints.size() >= 3;
-    const float targetPosition = train.motionDirection > 0.0f ? train.routeDistance : 0.0f;
+    if (train.routeStopTimer > 0.0f) {
+        train.previousRoutePosition = train.routePosition;
+        train.routeVelocity = 0.0f;
+        train.routeStopTimer = std::max(0.0f, train.routeStopTimer - dt);
+        train.engineThrottle = 0.0f;
+        return;
+    }
+
+    float targetPosition = train.motionDirection > 0.0f ? train.routeDistance : 0.0f;
+    bool targetIsReversalStop = false;
+    if (!isClosedRoute) {
+        if (train.motionDirection > 0.0f) {
+            for (const float stopPosition : customRouteStopPositions) {
+                if (stopPosition > train.routePosition + 0.001f) {
+                    targetPosition = stopPosition;
+                    targetIsReversalStop = true;
+                    break;
+                }
+            }
+        } else {
+            for (auto stop = customRouteStopPositions.rbegin(); stop != customRouteStopPositions.rend(); ++stop) {
+                if (*stop < train.routePosition - 0.001f) {
+                    targetPosition = *stop;
+                    targetIsReversalStop = true;
+                    break;
+                }
+            }
+        }
+    }
     const float distanceToTarget = std::abs(targetPosition - train.routePosition);
     const float stoppingDistance = (train.routeVelocity * train.routeVelocity) / (2.0f * brakeDeceleration);
 
@@ -1559,7 +1621,11 @@ void updateTrainMotion(Model& train, float dt) {
     } else if (distanceToTarget <= 0.02f && std::abs(train.routeVelocity) < 0.05f) {
         train.routePosition = targetPosition;
         train.routeVelocity = 0.0f;
-        train.motionDirection *= -1.0f;
+        if (targetIsReversalStop) {
+            train.routeStopTimer = routeReversalStopDurationSeconds;
+        } else {
+            train.motionDirection *= -1.0f;
+        }
     } else if (stoppingDistance >= distanceToTarget) {
         signedAcceleration = -brakeDeceleration * train.motionDirection;
     } else if (std::abs(train.routeVelocity) < maxSpeed) {
@@ -1571,6 +1637,13 @@ void updateTrainMotion(Model& train, float dt) {
     train.routeVelocity = std::clamp(train.routeVelocity, -maxSpeed, maxSpeed);
     train.previousRoutePosition = train.routePosition;
     train.routePosition += train.routeVelocity * dt;
+    if (targetIsReversalStop &&
+        ((train.motionDirection > 0.0f && train.routePosition >= targetPosition) ||
+         (train.motionDirection < 0.0f && train.routePosition <= targetPosition))) {
+        train.routePosition = targetPosition;
+        train.routeVelocity = 0.0f;
+        train.routeStopTimer = routeReversalStopDurationSeconds;
+    }
     if (isClosedRoute) {
         train.routePosition = std::fmod(train.routePosition, train.routeDistance);
         if (train.routePosition < 0.0f) train.routePosition += train.routeDistance;
@@ -1944,12 +2017,20 @@ int main() {
                                 customRouteFirstTrackPoint = snappedPoint;
                                 customRouteLastTrackPoint = snappedPoint;
                                 customRouteChanged = true;
-                            } else if (appendTrackPath(customRoutePoints, *customRouteLastTrackPoint,
-                                                       *snappedPoint)) {
-                                customRouteLastTrackPoint = snappedPoint;
-                                customRouteChanged = true;
                             } else {
-                                std::cout << "Cannot extend route: rails are not connected" << std::endl;
+                                const size_t routePointCount = customRoutePoints.size();
+                                const float connectionPosition = customRouteLength();
+                                if (!appendTrackPath(customRoutePoints, *customRouteLastTrackPoint,
+                                                     *snappedPoint)) {
+                                    std::cout << "Cannot extend route: rails are not connected" << std::endl;
+                                } else {
+                                    customRouteLastTrackPoint = snappedPoint;
+                                    customRouteChanged = true;
+                                    if (customRoutePoints.size() > routePointCount) {
+                                        customRouteStopPositions.push_back(connectionPosition);
+                                    }
+                                    addRouteDirectionChangeStops();
+                                }
                             }
                         }
                     }
