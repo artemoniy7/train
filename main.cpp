@@ -535,6 +535,7 @@ bool previousLeftMousePressed = false;
 bool previousRightMousePressed = false;
 bool routeBuildMode = false;
 bool previousPPressed = false;
+bool previousXPressed = false;
 bool previousRouteLeftMousePressed = false;
 bool customRouteClosed = false;
 bool customRouteChanged = false;
@@ -1391,9 +1392,19 @@ void appendTrackPath(std::vector<glm::vec3>& points, float fromDistance, float t
     }
 }
 
+void clearCustomRoute() {
+    customRoutePoints.clear();
+    customRouteClosed = false;
+    customRouteFirstTrackDistance.reset();
+    customRouteLastTrackDistance.reset();
+    customRouteChanged = true;
+}
+
 void applyCustomRouteToTrains() {
     if (!customRouteChanged) return;
-    const float length = customRouteLength();
+    const bool hasCustomRoute = customRoutePoints.size() >= 2;
+    const float length = hasCustomRoute ? customRouteLength()
+        : (trackSegments.empty() ? 0.0f : trackSegments.back().distanceFromRouteStart + trackSegments.back().length);
     for (Model& train : trains) {
         train.routeDistance = length;
         train.routePosition = 0.0f;
@@ -1401,7 +1412,7 @@ void applyCustomRouteToTrains() {
         train.routeVelocity = 0.0f;
         train.motionDirection = 1.0f;
         if (length > 0.0f) {
-            const RouteSample sample = sampleCustomRoute(0.0f);
+            const RouteSample sample = hasCustomRoute ? sampleCustomRoute(0.0f) : sampleTrackRoute(0.0f);
             train.routeDirection = sample.direction;
             train.position = sample.position;
             train.position.y = train.routeStart.y;
@@ -1744,20 +1755,23 @@ int main() {
             routeBuildMode = !routeBuildMode;
             if (routeBuildMode) trackBuildMode = false;
             if (routeBuildMode && customRouteClosed) {
-                customRoutePoints.clear();
-                customRouteClosed = false;
-                customRouteFirstTrackDistance.reset();
-                customRouteLastTrackDistance.reset();
-                customRouteChanged = true;
+                clearCustomRoute();
             }
             glfwSetInputMode(window, GLFW_CURSOR,
                              (trackBuildMode || routeBuildMode) ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             firstMouse = true;
             std::cout << (routeBuildMode
-                ? "Route builder: left click on rails to trace them; click the first point to close; right click cancels the route"
+                ? "Route builder: left click on rails to trace them; click the first point to close; X clears the route"
                 : "Route builder closed") << std::endl;
         }
         previousPPressed = pPressed;
+
+        const bool xPressed = glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS;
+        if (xPressed && !previousXPressed) {
+            clearCustomRoute();
+            std::cout << "Custom route cleared" << std::endl;
+        }
+        previousXPressed = xPressed;
 
         if (trackBuildMode) {
             const bool iPressed = glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS;
@@ -1790,11 +1804,7 @@ int main() {
             const bool leftPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             const bool rightPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
             if (rightPressed && !previousRightMousePressed && !customRoutePoints.empty()) {
-                customRoutePoints.clear();
-                customRouteClosed = false;
-                customRouteFirstTrackDistance.reset();
-                customRouteLastTrackDistance.reset();
-                customRouteChanged = true;
+                clearCustomRoute();
             }
             if (cursorPosition) {
                 const auto snappedPoint = snapRoutePoint(*cursorPosition);
@@ -1816,14 +1826,6 @@ int main() {
                             customRouteLastTrackDistance = snappedPoint->trackDistance;
                         }
                         customRouteChanged = true;
-                    }
-                    if (!customRouteClosed) {
-                        if (customRouteLastTrackDistance) {
-                            appendTrackPath(routePreviewPoints, *customRouteLastTrackDistance,
-                                            snappedPoint->trackDistance);
-                        } else {
-                            routePreviewPoints.push_back(snappedPoint->position);
-                        }
                     }
                 }
             }
