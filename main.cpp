@@ -539,6 +539,8 @@ bool previousRouteLeftMousePressed = false;
 bool customRouteClosed = false;
 bool customRouteChanged = false;
 std::vector<glm::vec3> customRoutePoints;
+std::optional<float> customRouteFirstTrackDistance;
+std::optional<float> customRouteLastTrackDistance;
 
 constexpr float trackSnapDistanceMeters = 1.25f;
 constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
@@ -1356,8 +1358,13 @@ RouteSample sampleActiveRoute(float routePosition) {
                                          : sampleTrackRoute(routePosition);
 }
 
-std::optional<glm::vec3> snapRoutePoint(const glm::vec3& position) {
-    std::optional<glm::vec3> closest;
+struct RoutePoint {
+    glm::vec3 position;
+    float trackDistance = 0.0f;
+};
+
+std::optional<RoutePoint> snapRoutePoint(const glm::vec3& position) {
+    std::optional<RoutePoint> closest;
     float closestDistance = trackSnapDistanceMeters;
     for (const TrackSegment& segment : trackSegments) {
         const glm::vec3 offset = segment.end - segment.start;
@@ -1367,11 +1374,21 @@ std::optional<glm::vec3> snapRoutePoint(const glm::vec3& position) {
         const glm::vec3 projected = segment.start + offset * t;
         const float distance = glm::length(position - projected);
         if (distance < closestDistance) {
-            closest = projected;
+            closest = {projected, segment.distanceFromRouteStart + t * segment.length};
             closestDistance = distance;
         }
     }
     return closest;
+}
+
+void appendTrackPath(std::vector<glm::vec3>& points, float fromDistance, float toDistance) {
+    const float distance = std::abs(toDistance - fromDistance);
+    const int stepCount = std::max(1, static_cast<int>(std::ceil(distance)));
+    for (int step = 0; step <= stepCount; ++step) {
+        const float fraction = static_cast<float>(step) / stepCount;
+        const glm::vec3 point = sampleTrackRoute(fromDistance + (toDistance - fromDistance) * fraction).position;
+        if (points.empty() || glm::length(points.back() - point) > 0.001f) points.push_back(point);
+    }
 }
 
 void applyCustomRouteToTrains() {
@@ -1726,11 +1743,18 @@ int main() {
         if (pPressed && !previousPPressed) {
             routeBuildMode = !routeBuildMode;
             if (routeBuildMode) trackBuildMode = false;
+            if (routeBuildMode && customRouteClosed) {
+                customRoutePoints.clear();
+                customRouteClosed = false;
+                customRouteFirstTrackDistance.reset();
+                customRouteLastTrackDistance.reset();
+                customRouteChanged = true;
+            }
             glfwSetInputMode(window, GLFW_CURSOR,
                              (trackBuildMode || routeBuildMode) ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             firstMouse = true;
             std::cout << (routeBuildMode
-                ? "Route builder: left click on rails to add points; click the first point to close; right click cancels the last point"
+                ? "Route builder: left click on rails to trace them; click the first point to close; right click cancels the route"
                 : "Route builder closed") << std::endl;
         }
         previousPPressed = pPressed;
@@ -1766,23 +1790,41 @@ int main() {
             const bool leftPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             const bool rightPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
             if (rightPressed && !previousRightMousePressed && !customRoutePoints.empty()) {
-                customRoutePoints.pop_back();
+                customRoutePoints.clear();
                 customRouteClosed = false;
+                customRouteFirstTrackDistance.reset();
+                customRouteLastTrackDistance.reset();
                 customRouteChanged = true;
             }
             if (cursorPosition) {
                 const auto snappedPoint = snapRoutePoint(*cursorPosition);
                 if (snappedPoint) {
                     if (leftPressed && !previousRouteLeftMousePressed) {
-                        if (customRoutePoints.size() >= 3 &&
-                            glm::length(*snappedPoint - customRoutePoints.front()) < routeCloseSnapDistanceMeters) {
+                        if (customRouteFirstTrackDistance && customRouteLastTrackDistance &&
+                            glm::length(snappedPoint->position - customRoutePoints.front()) < routeCloseSnapDistanceMeters) {
+                            appendTrackPath(customRoutePoints, *customRouteLastTrackDistance,
+                                            *customRouteFirstTrackDistance);
                             customRouteClosed = true;
                         } else if (!customRouteClosed) {
-                            customRoutePoints.push_back(*snappedPoint);
+                            if (!customRouteLastTrackDistance) {
+                                customRoutePoints.push_back(snappedPoint->position);
+                                customRouteFirstTrackDistance = snappedPoint->trackDistance;
+                            } else {
+                                appendTrackPath(customRoutePoints, *customRouteLastTrackDistance,
+                                                snappedPoint->trackDistance);
+                            }
+                            customRouteLastTrackDistance = snappedPoint->trackDistance;
                         }
                         customRouteChanged = true;
                     }
-                    if (!customRouteClosed) routePreviewPoints.push_back(*snappedPoint);
+                    if (!customRouteClosed) {
+                        if (customRouteLastTrackDistance) {
+                            appendTrackPath(routePreviewPoints, *customRouteLastTrackDistance,
+                                            snappedPoint->trackDistance);
+                        } else {
+                            routePreviewPoints.push_back(snappedPoint->position);
+                        }
+                    }
                 }
             }
             previousRouteLeftMousePressed = leftPressed;
