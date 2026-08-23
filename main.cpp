@@ -1654,7 +1654,10 @@ void updateTrainMotion(Model& train, float dt) {
         : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
 
     const RouteSample sample = sampleActiveRoute(train.routePosition);
-    train.routeDirection = sample.direction;
+    // The route sample always points toward increasing route distance.  At an
+    // endpoint the train travels in the opposite direction after reversing,
+    // so its visual heading must follow motionDirection as well.
+    train.routeDirection = sample.direction * train.motionDirection;
     train.position = sample.position;
     train.position.y = train.routeStart.y;
     train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
