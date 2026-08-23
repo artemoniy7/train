@@ -41,12 +41,13 @@ The simulator loads this file automatically on startup; it uses the built-in
 demonstration track only when the file is absent or invalid.
 
 Press `P` to create a custom train route. Left-click rail segments to add blue
-route points; every connection follows the existing rails rather than a direct
-line. A route is changed only by clicks: simply moving the cursor over rails
-does not add or preview a connection. Click the first point to close the route.
-The first selected point is shown as a raised blue marker; subsequent clicks
-show a raised blue line so that it remains visible above the rail model.
-Press `P` again after closing a route to start a new one, right-click to cancel
-the route being created, or press `X` at any time to completely clear the
+route points; every connection follows the shortest path through the existing
+rails, including rail junctions, rather than a direct line or their creation
+order. Disconnected rails cannot be added to the same route. A route is changed
+only by clicks: simply moving the cursor over rails does not add or preview a
+connection. Click the first point to close the route. Press `P` to close or
+reopen the route editor without changing a completed route; after reopening,
+the first click on a rail starts its replacement. Right-click cancels the route
+being created, or press `X` at any time to completely clear the
 custom route and return trains to the normal track route. An open route makes
 trains shuttle between its endpoints; a closed route loops continuously.
