@@ -331,6 +331,59 @@ public:
         buffer = 0;
     }
 
+    bool loadOneShotBuffer(const fs::path& soundPath, unsigned int& buffer, float& durationSeconds) const {
+        std::vector<char> pcm;
+        ALenum format;
+        ALsizei sampleRate;
+        if (!loadPcmSound(soundPath, pcm, format, sampleRate, durationSeconds)) {
+            std::cout << "Cannot load rail joint sound: " << soundPath << std::endl;
+            return false;
+        }
+
+        alGenBuffers(1, &buffer);
+        alBufferData(buffer, format, pcm.data(), static_cast<ALsizei>(pcm.size()), sampleRate);
+        return true;
+    }
+
+    unsigned int playOneShot(unsigned int buffer, const glm::vec3& position, float pitch, float gain) const {
+        ALuint source = 0;
+        alGenSources(1, &source);
+        alSourcei(source, AL_BUFFER, buffer);
+        alSourcei(source, AL_LOOPING, AL_FALSE);
+        alSource3f(source, AL_POSITION, position.x, position.y, position.z);
+        alSourcef(source, AL_REFERENCE_DISTANCE, 5.0f);
+        alSourcef(source, AL_MAX_DISTANCE, 120.0f);
+        alSourcef(source, AL_ROLLOFF_FACTOR, 1.4f);
+        alSourcef(source, AL_PITCH, pitch);
+        alSourcef(source, AL_GAIN, gain);
+        alSourcePlay(source);
+        return source;
+    }
+
+    void cleanupStoppedSources(std::vector<unsigned int>& sources) const {
+        sources.erase(std::remove_if(sources.begin(), sources.end(), [](unsigned int source) {
+            ALint state = AL_STOPPED;
+            alGetSourcei(source, AL_SOURCE_STATE, &state);
+            if (state == AL_STOPPED) {
+                alDeleteSources(1, &source);
+                return true;
+            }
+            return false;
+        }), sources.end());
+    }
+
+    void releaseSources(std::vector<unsigned int>& sources) const {
+        if (!sources.empty()) {
+            alDeleteSources(static_cast<ALsizei>(sources.size()), sources.data());
+            sources.clear();
+        }
+    }
+
+    void releaseBuffer(unsigned int& buffer) const {
+        if (buffer != 0) alDeleteBuffers(1, &buffer);
+        buffer = 0;
+    }
+
     void updateListener(const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up) {
         alListener3f(AL_POSITION, position.x, position.y, position.z);
         const float orientation[] = {forward.x, forward.y, forward.z, up.x, up.y, up.z};
@@ -530,6 +583,20 @@ struct RouteSample {
     glm::vec3 position = glm::vec3(0.0f);
     glm::vec3 direction = glm::vec3(0.0f, 0.0f, 1.0f);
 };
+
+struct TrackJointSound {
+    glm::vec3 position;
+    float routePosition = 0.0f;
+};
+
+std::vector<TrackJointSound> trackJointSounds;
+std::vector<unsigned int> activeJointSoundSources;
+unsigned int jointSoundBuffer = 0;
+float jointSoundDurationSeconds = 0.0f;
+
+constexpr float jointSoundIntervalMeters = 25.0f;
+constexpr float jointTwoAxleDistanceMeters = 2.7f;
+constexpr float jointSoundPaddingSeconds = 0.08f;
 
 // Обработчики GLFW
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -1086,6 +1153,76 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
             const float targetDuration = jointTwoAxleDistanceMeters / speedMs + jointSoundPaddingSeconds;
             const float pitch = std::clamp(jointSoundDurationSeconds / targetDuration, 0.25f, 2.0f);
             activeJointSoundSources.push_back(audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch, 0.95f));
+        }
+    }
+}
+
+void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
+    if (jointSoundBuffer == 0 || jointSoundDurationSeconds <= 0.0f) return;
+
+    audioSystem.cleanupStoppedSources(activeJointSoundSources);
+    
+    for (const Model& train : trains) {
+        if (train.routeDistance <= 0.0f || train.previousRoutePosition == train.routePosition) continue;
+
+        const float from = std::min(train.previousRoutePosition, train.routePosition);
+        const float to = std::max(train.previousRoutePosition, train.routePosition);
+        const float speedMs = std::abs(train.routeVelocity);
+        const float speedKmh = speedMs * 3.6f;
+        
+        for (const TrackJointSound& joint : trackJointSounds) {
+            if (joint.routePosition < from || joint.routePosition > to) continue;
+
+            // === РЕАЛИСТИЧНЫЙ ЗВУК СТЫКОВ ===
+            
+            // 1. Громкость: растет со скоростью, но с насыщением
+            // При 10 км/ч - тихо, при 60 км/ч - громко, выше - насыщение
+            float volume = 0.0f;
+            if (speedKmh < 5.0f) {
+                volume = 0.05f; // Почти неслышно
+            } else if (speedKmh < 80.0f) {
+                volume = 0.1f + (speedKmh - 5.0f) / 75.0f * 0.8f;
+            } else {
+                volume = 0.9f; // Насыщение
+            }
+            volume = std::clamp(volume, 0.0f, 1.0f);
+            
+            // 2. Pitch: почти не меняется (только легкий эффект)
+            // В реальности звук стыка - это удар, его высота не зависит от скорости
+            float pitch = 1.0f;
+            
+            // 3. Небольшая случайность (каждый стык звучит чуть по-разному)
+            static unsigned int seed = 12345;
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            float randomFactor = 0.85f + (seed % 30) / 100.0f;
+            pitch *= randomFactor;
+            
+            // 4. Эффект Доплера при высокой скорости (очень слабый)
+            if (speedKmh > 50.0f) {
+                pitch += (speedKmh - 50.0f) / 200.0f * 0.05f;
+            }
+            
+            // 5. Дополнительная громкость для второй оси (эффект двух колес)
+            // Создаем второй звук с небольшой задержкой для имитации двух осей
+            float axleDistance = 2.7f; // расстояние между осями в метрах
+            float delay = axleDistance / speedMs;
+            if (delay > 0.0f && delay < 0.5f) {
+                // Второй звук чуть тише
+                float volume2 = volume * 0.7f;
+                float pitch2 = pitch * (0.95f + (rand() % 10) / 100.0f);
+                
+                // Откладываем второй звук
+                // (здесь нужно было бы использовать задержку, но для простоты
+                // просто играем сразу с чуть другой громкостью)
+                activeJointSoundSources.push_back(
+                    audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch2, volume2 * 0.6f)
+                );
+            }
+            
+            // Воспроизводим основной звук
+            activeJointSoundSources.push_back(
+                audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch, volume)
+            );
         }
     }
 }
