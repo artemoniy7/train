@@ -893,9 +893,6 @@ void updateTrainMotion(Model& train, float dt) {
 
     train.position = train.routeStart + train.routeDirection * train.routePosition;
     train.transform = glm::translate(glm::mat4(1.0f), train.position);
-    if (train.motionDirection < 0.0f) {
-        train.transform = glm::rotate(train.transform, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    }
     train.transform = glm::scale(train.transform, glm::vec3(train.scale));
     train.transform *= train.sourceTransform;
 }
