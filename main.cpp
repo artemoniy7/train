@@ -539,6 +539,43 @@ constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
 constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
 constexpr float minimumCurveRadiusMeters = 20.0f;
 
+bool saveTrackMap() {
+    const fs::path mapDirectory = "maps";
+    const fs::path mapPath = mapDirectory / "latest_track_map.json";
+    std::error_code error;
+    fs::create_directories(mapDirectory, error);
+    if (error) {
+        std::cout << "Cannot create map directory " << mapDirectory << ": "
+                  << error.message() << std::endl;
+        return false;
+    }
+
+    nlohmann::json map = {
+        {"format", "train-simulator-track-map"},
+        {"version", 1},
+        {"segments", nlohmann::json::array()}
+    };
+    for (const TrackSegment& segment : trackSegments) {
+        map["segments"].push_back({
+            {"start", {segment.start.x, segment.start.y, segment.start.z}},
+            {"end", {segment.end.x, segment.end.y, segment.end.z}},
+            {"start_heading_radians", segment.startHeadingRadians},
+            {"curvature_radians_per_meter", segment.curvatureRadiansPerMeter},
+            {"length_meters", segment.length}
+        });
+    }
+
+    std::ofstream output(mapPath);
+    if (!output) {
+        std::cout << "Cannot save track map to " << mapPath << std::endl;
+        return false;
+    }
+    output << map.dump(2) << '\n';
+    std::cout << "Track map saved to " << mapPath << " ("
+              << trackSegments.size() << " segments)" << std::endl;
+    return true;
+}
+
 // Обработчики GLFW
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -1520,6 +1557,7 @@ int main() {
         if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
             cameraPos.y -= speed;
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            saveTrackMap();
             glfwSetWindowShouldClose(window, true);
         }
 
