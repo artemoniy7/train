@@ -1084,7 +1084,10 @@ int main() {
 
     // Blender assets use two source units per metre.  A 5 m rail piece has
     // endpoints 10 source units apart, therefore the common scale below
-    // produces a 500 m route from one hundred connected pieces.
+    // produces a 500 m route from one hundred connected pieces.  Keep the
+    // first piece near the camera and extend the extra sections forward so the
+    // loaded train is visible immediately instead of spawning hundreds of
+    // metres away at the negative end of a centred route.
     constexpr int trackPieceCount = 100;
     constexpr float trackPieceLength = 5.0f;
     constexpr float assetScale = 0.5f;
@@ -1093,8 +1096,7 @@ int main() {
         rail.markers.count("track_end") == 0) {
         std::cout << "Rail model or its track_start/track_end markers were not found" << std::endl;
     } else {
-        const glm::vec3 firstPieceCenter(0.0f, 0.0f,
-            -0.5f * trackPieceLength * (trackPieceCount - 1));
+        const glm::vec3 firstPieceCenter(0.0f, 0.0f, 0.0f);
         for (int i = 0; i < trackPieceCount; ++i) {
             const glm::vec3 center = firstPieceCenter + glm::vec3(0.0f, 0.0f, i * trackPieceLength);
             const glm::mat4 instanceTransform = glm::scale(
@@ -1238,7 +1240,7 @@ int main() {
             trainAudio.updateEngine(train, cameraPos);
         }
         updateTrackJointSounds(trainAudio);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 800.0f);
 
         // === РИСУЕМ ПЛОСКОСТЬ ===
         glUseProgram(planeShader);
