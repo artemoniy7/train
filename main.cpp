@@ -566,7 +566,9 @@ constexpr float routeCloseSnapDistanceMeters = 1.25f;
 // floating point curve calculations.  This is deliberately much smaller than
 // the editor snapping radius, so nearby but unconnected rails stay separate.
 constexpr float routeJunctionToleranceMeters = 0.05f;
-constexpr float routeReversalDotProductThreshold = -0.95f;
+// A departure onto any branch in the opposite half-plane needs a direction
+// change.  Requiring an almost-perfect 180-degree turn misses diverging rails.
+constexpr float routeReversalDotProductThreshold = 0.0f;
 constexpr float routeReversalStopDurationSeconds = 2.0f;
 
 bool saveTrackMap() {
