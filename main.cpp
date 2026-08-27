@@ -43,28 +43,75 @@ namespace fs = std::filesystem;
 const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
 
-// Камера
-glm::vec3 cameraPos = glm::vec3(5.0f, 5.0f, 10.0f);
-glm::vec3 cameraFront = glm::vec3(-1.0f, -1.0f, -1.0f);
-glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
-
-float yaw = -135.0f;
-float pitch = -30.0f;
-float lastX = SCR_WIDTH / 2.0f;
-float lastY = SCR_HEIGHT / 2.0f;
-bool firstMouse = true;
-
+// Время
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+bool firstMouse = true;
 
-// Структура для текстуры
+// ========== НОВАЯ СИСТЕМА КАМЕРЫ ==========
+struct Camera {
+    glm::vec3 position = glm::vec3(0.0f, 30.0f, 0.0f);
+    
+    float yaw = 0.0f;
+    float pitch = glm::half_pi<float>() * 0.8f;
+    float distance = 30.0f;
+    
+    glm::vec3 target = glm::vec3(0.0f, 0.0f, 0.0f);
+    
+    float minPitch = 0.05f;
+    float maxPitch = glm::half_pi<float>() - 0.05f;
+    float minDistance = 5.0f;
+    float maxDistance = 100.0f;
+    float rotationSpeed = 2.0f;
+    float zoomSpeed = 5.0f;
+    float pitchSpeed = 1.5f;
+    float panSpeed = 10.0f;
+    
+    void update() {
+        float pitchClamped = std::clamp(pitch, minPitch, maxPitch);
+        
+        glm::vec3 direction;
+        direction.x = cos(pitchClamped) * sin(yaw);
+        direction.y = sin(pitchClamped);
+        direction.z = cos(pitchClamped) * cos(yaw);
+        
+        position = target + direction * distance;
+    }
+    
+    glm::mat4 getViewMatrix() const {
+        return glm::lookAt(position, target, glm::vec3(0.0f, 1.0f, 0.0f));
+    }
+    
+    glm::vec3 getFront() const {
+        return glm::normalize(target - position);
+    }
+    
+    glm::vec3 getRight() const {
+        return glm::normalize(glm::cross(getFront(), glm::vec3(0.0f, 1.0f, 0.0f)));
+    }
+    
+    glm::vec3 getForwardHorizontal() const {
+        glm::vec3 front = getFront();
+        front.y = 0.0f;
+        if (glm::length(front) > 0.001f) {
+            front = glm::normalize(front);
+        } else {
+            front = glm::vec3(0.0f, 0.0f, -1.0f);
+        }
+        return front;
+    }
+};
+
+Camera camera;
+
+// ========== ОСТАЛЬНЫЕ СТРУКТУРЫ ==========
+
 struct Texture {
     unsigned int id;
     std::string type;
     std::string path;
 };
 
-// Структура для Mesh с текстурами
 struct Mesh {
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec3> normals;
@@ -136,7 +183,6 @@ struct Mesh {
     }
 };
 
-// Структура для модели
 struct Model {
     std::string name;
     std::string description;
@@ -530,8 +576,6 @@ struct RoutePoint {
     float distanceAlongSegment = 0.0f;
 };
 
-
-
 enum class TrackBuildTool { Straight, Curve };
 
 bool trackBuildMode = false;
@@ -551,8 +595,6 @@ bool previousRouteLeftMousePressed = false;
 bool customRouteClosed = false;
 bool customRouteChanged = false;
 std::vector<glm::vec3> customRoutePoints;
-// Every completed route waypoint is an operational stop before the train
-// continues to the following waypoint.
 std::vector<float> customRouteStopPositions;
 std::optional<RoutePoint> customRouteFirstTrackPoint;
 std::optional<RoutePoint> customRouteLastTrackPoint;
@@ -562,12 +604,7 @@ constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
 constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
 constexpr float minimumCurveRadiusMeters = 20.0f;
 constexpr float routeCloseSnapDistanceMeters = 1.25f;
-// Track pieces created at the same endpoint can differ slightly because of
-// floating point curve calculations.  This is deliberately much smaller than
-// the editor snapping radius, so nearby but unconnected rails stay separate.
 constexpr float routeJunctionToleranceMeters = 0.05f;
-// Track curves are sampled in one-metre pieces, so their adjacent samples have
-// near-identical directions.  A larger change marks a sharp rail junction.
 constexpr float routeStopDirectionChangeDotProduct = 0.95f;
 constexpr float routeReversalStopDurationSeconds = 2.0f;
 
@@ -608,45 +645,31 @@ bool saveTrackMap() {
     return true;
 }
 
-// Обработчики GLFW
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
-    if (trackBuildMode) return;
-    float xpos = static_cast<float>(xposIn);
-    float ypos = static_cast<float>(yposIn);
-
-    if (firstMouse) {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
-
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos;
-    lastX = xpos;
-    lastY = ypos;
-
-    float sensitivity = 0.1f;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
-
-    yaw += xoffset;
-    pitch += yoffset;
-
-    if (pitch > 89.0f) pitch = 89.0f;
-    if (pitch < -89.0f) pitch = -89.0f;
-
-    glm::vec3 front;
-    front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-    front.y = sin(glm::radians(pitch));
-    front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-    cameraFront = glm::normalize(front);
+    // Не используем для управления камерой, чтобы не мешать режимам редактирования
 }
 
-// Загрузка текстуры из памяти
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    if (yoffset != 0) {
+        camera.distance -= yoffset * camera.zoomSpeed;
+        camera.distance = std::clamp(camera.distance, camera.minDistance, camera.maxDistance);
+        camera.update();
+    }
+}
+
+// Функция для переключения режима отображения курсора
+void setCursorMode(GLFWwindow* window, bool showCursor) {
+    if (showCursor) {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    } else {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+}
+
 unsigned int loadTextureFromMemory(const unsigned char* data, int width, int height, int channels) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
@@ -672,7 +695,6 @@ unsigned int loadTextureFromMemory(const unsigned char* data, int width, int hei
     return textureID;
 }
 
-// Загрузка embedded текстуры из Assimp
 unsigned int loadEmbeddedTexture(const aiTexture* embeddedTexture) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
@@ -724,7 +746,6 @@ unsigned int loadEmbeddedTexture(const aiTexture* embeddedTexture) {
     }
 }
 
-// Функция загрузки текстур из материала
 std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName,
                                           const aiScene* scene, const std::string& directory) {
     std::vector<Texture> textures;
@@ -765,7 +786,6 @@ std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, s
     return textures;
 }
 
-// Процессинг меша с текстурами
 Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& directory) {
     Mesh result;
 
@@ -1003,7 +1023,6 @@ unsigned int createShaderProgram(const char* vertexSource, const char* fragmentS
     return shaderProgram;
 }
 
-// Плоскость
 unsigned int planeVAO, planeVBO, planeEBO;
 bool planeInitialized = false;
 
@@ -1043,7 +1062,6 @@ void drawPlane() {
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
 }
-
 
 unsigned int previewVAO = 0;
 unsigned int previewVBO = 0;
@@ -1212,7 +1230,7 @@ struct TrackConnection {
 
 TrackConnection snapTrackConnection(const glm::vec3& position) {
     TrackConnection closest{position, std::nullopt, false};
-    float closestDistance = trackSnapDistanceMeters; // <-- было routeSnapDistanceMeters
+    float closestDistance = trackSnapDistanceMeters;
     for (const TrackSegment& segment : trackSegments) {
         const float endHeading = segment.startHeadingRadians +
             segment.curvatureRadiansPerMeter * segment.length;
@@ -1456,8 +1474,6 @@ void appendSegmentPath(std::vector<glm::vec3>& points, size_t segmentIndex,
     }
 }
 
-// Finds the shortest connected rail path instead of relying on creation order.
-// Each segment endpoint is a graph node; coincident endpoints form a junction.
 bool appendTrackPath(std::vector<glm::vec3>& points, const RoutePoint& from, const RoutePoint& to) {
     if (from.segmentIndex >= trackSegments.size() || to.segmentIndex >= trackSegments.size()) return false;
     if (from.segmentIndex == to.segmentIndex) {
@@ -1535,10 +1551,6 @@ bool appendTrackPath(std::vector<glm::vec3>& points, const RoutePoint& from, con
                       to.distanceAlongSegment);
     return true;
 }
-
-
-// Finds the shortest connected rail path instead of relying on creation order.
-// Each segment endpoint is a graph node; coincident endpoints form a junction.
 
 void clearCustomRoute() {
     customRoutePoints.clear();
@@ -1654,9 +1666,6 @@ void updateTrainMotion(Model& train, float dt) {
         : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
 
     const RouteSample sample = sampleActiveRoute(train.routePosition);
-    // The route sample always points toward increasing route distance.  At an
-    // endpoint the train travels in the opposite direction after reversing,
-    // so its visual heading must follow motionDirection as well.
     train.routeDirection = sample.direction * train.motionDirection;
     train.position = sample.position;
     train.position.y = train.routeStart.y;
@@ -1680,9 +1689,6 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
         for (const TrackJointSound& joint : trackJointSounds) {
             if (joint.routePosition < from || joint.routePosition > to) continue;
 
-            // РЕАЛИСТИЧНЫЙ ЗВУК СТЫКОВ
-
-            // 1. Громкость: растет со скоростью, но с насыщением
             float volume = 0.0f;
             if (speedKmh < 5.0f) {
                 volume = 0.05f;
@@ -1693,21 +1699,17 @@ void updateTrackJointSounds(const TrainAudioSystem& audioSystem) {
             }
             volume = std::clamp(volume, 0.0f, 1.0f);
 
-            // 2. Pitch: почти не меняется
             float pitch = 1.0f;
 
-            // 3. Случайность
             static unsigned int seed = 12345;
             seed = (seed * 1103515245 + 12345) & 0x7fffffff;
             float randomFactor = 0.85f + (seed % 30) / 100.0f;
             pitch *= randomFactor;
 
-            // 4. Эффект Доплера
             if (speedKmh > 50.0f) {
                 pitch += (speedKmh - 50.0f) / 200.0f * 0.05f;
             }
 
-            // Воспроизводим основной звук
             activeJointSoundSources.push_back(
                 audioSystem.playOneShot(jointSoundBuffer, joint.position, pitch, volume)
             );
@@ -1731,7 +1733,9 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
 
+    // По умолчанию курсор скрыт
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -1741,6 +1745,8 @@ int main() {
 
     glEnable(GL_DEPTH_TEST);
     glClearColor(0.53f, 0.81f, 0.92f, 1.0f);
+
+    camera.update();
 
     TrainAudioSystem trainAudio;
     const bool audioAvailable = trainAudio.initialize();
@@ -1896,7 +1902,14 @@ int main() {
     }
 
     std::cout << "=== TRAIN SIMULATOR ENGINE ===" << std::endl;
-    std::cout << "Controls: WASD - move, Mouse - look, E/Q - up/down, H - track builder, ESC - exit" << std::endl;
+    std::cout << "Controls:" << std::endl;
+    std::cout << "  E/Q - rotate camera" << std::endl;
+    std::cout << "  UP/DOWN - change camera pitch" << std::endl;
+    std::cout << "  Mouse wheel - zoom in/out" << std::endl;
+    std::cout << "  WASD - move camera (relative to rotation)" << std::endl;
+    std::cout << "  H - track builder" << std::endl;
+    std::cout << "  P - route builder" << std::endl;
+    std::cout << "  ESC - exit" << std::endl;
     std::cout << "Loaded " << trains.size() << " train(s)" << std::endl;
 
     // Главный цикл
@@ -1905,53 +1918,99 @@ int main() {
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // Управление камерой
-        float speed = 10.0f * deltaTime;
-        glm::vec3 cameraFrontHorizontal = glm::normalize(glm::vec3(cameraFront.x, 0.0f, cameraFront.z));
-        glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFrontHorizontal, cameraUp));
+        // ========== УПРАВЛЕНИЕ КАМЕРОЙ (ВСЕГДА РАБОТАЕТ) ==========
+        
+        // Поворот камеры (E/Q)
+        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+            camera.yaw += camera.rotationSpeed * deltaTime;
+            camera.update();
+        }
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+            camera.yaw -= camera.rotationSpeed * deltaTime;
+            camera.update();
+        }
+        
+        // Наклон камеры (стрелки вверх/вниз)
+        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+            camera.pitch += camera.pitchSpeed * deltaTime;
+            camera.pitch = std::clamp(camera.pitch, camera.minPitch, camera.maxPitch);
+            camera.update();
+        }
+        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+            camera.pitch -= camera.pitchSpeed * deltaTime;
+            camera.pitch = std::clamp(camera.pitch, camera.minPitch, camera.maxPitch);
+            camera.update();
+        }
+        
+        // Перемещение цели (WASD) - ОТНОСИТЕЛЬНО ПОВОРОТА КАМЕРЫ
+        float panSpeed = camera.panSpeed * deltaTime;
+        glm::vec3 forward = camera.getForwardHorizontal();
+        glm::vec3 right = camera.getRight();
+        
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            camera.target += forward * panSpeed;
+            camera.update();
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            camera.target -= forward * panSpeed;
+            camera.update();
+        }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            camera.target -= right * panSpeed;
+            camera.update();
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            camera.target += right * panSpeed;
+            camera.update();
+        }
 
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-            cameraPos += speed * cameraFrontHorizontal;
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-            cameraPos -= speed * cameraFrontHorizontal;
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-            cameraPos -= speed * cameraRight;
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-            cameraPos += speed * cameraRight;
-        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-            cameraPos.y += speed;
-        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-            cameraPos.y -= speed;
+        // ========== УПРАВЛЕНИЕ КУРСОРОМ ==========
+        // Показываем курсор только в режимах редактирования
+        bool showCursor = trackBuildMode || routeBuildMode;
+        setCursorMode(window, showCursor);
+
+        // ========== ВЫХОД ПО ESC ==========
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             saveTrackMap();
             glfwSetWindowShouldClose(window, true);
         }
 
+        // ========== РЕЖИМЫ РЕДАКТИРОВАНИЯ ==========
+        
         const bool hPressed = glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS;
         if (hPressed && !previousHPressed) {
             trackBuildMode = !trackBuildMode;
-            if (trackBuildMode) routeBuildMode = false;
+            if (trackBuildMode) {
+                routeBuildMode = false;
+                // Показываем курсор для строительства пути
+                setCursorMode(window, true);
+                std::cout << "Track builder: I - straight, J - curve, left click - select/build, right click - cancel" << std::endl;
+            } else {
+                // Скрываем курсор, если не в режиме редактирования
+                setCursorMode(window, false);
+                std::cout << "Track builder closed" << std::endl;
+            }
             trackBuildStart.reset();
             trackBuildStartHeading.reset();
             trackBuildStartIsConnected = false;
-            glfwSetInputMode(window, GLFW_CURSOR,
-                             trackBuildMode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             firstMouse = true;
-            std::cout << (trackBuildMode ? "Track builder: I - straight, J - curve, left click - select/build, right click - cancel"
-                                         : "Track builder closed") << std::endl;
         }
         previousHPressed = hPressed;
 
         const bool pPressed = glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS;
         if (pPressed && !previousPPressed) {
             routeBuildMode = !routeBuildMode;
-            if (routeBuildMode) trackBuildMode = false;
-            glfwSetInputMode(window, GLFW_CURSOR,
-                             (trackBuildMode || routeBuildMode) ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (routeBuildMode) {
+                trackBuildMode = false;
+                // Показываем курсор для создания маршрута
+                setCursorMode(window, true);
+                std::cout << "Route builder: left click on rails to trace them; click the first point to close; X clears the route" << std::endl;
+            } else {
+                // Скрываем курсор, если не в режиме редактирования
+                setCursorMode(window, false);
+                std::cout << "Route builder closed" << std::endl;
+            }
             firstMouse = true;
-            std::cout << (routeBuildMode
-                ? "Route builder: left click on rails to trace them; click the first point to close; X clears the route"
-                : "Route builder closed") << std::endl;
         }
         previousPPressed = pPressed;
 
@@ -1974,21 +2033,19 @@ int main() {
         // Рендеринг
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        trainAudio.updateListener(cameraPos, cameraFront, cameraUp);
+        glm::mat4 view = camera.getViewMatrix();
+        trainAudio.updateListener(camera.position, camera.getFront(), glm::vec3(0.0f, 1.0f, 0.0f));
 
         applyCustomRouteToTrains();
         for (auto& train : trains) {
             updateTrainMotion(train, deltaTime);
-            trainAudio.updateEngine(train, cameraPos);
+            trainAudio.updateEngine(train, camera.position);
         }
         updateTrackJointSounds(trainAudio);
 
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 800.0f);
 
         std::vector<glm::vec3> previewPoints;
-        // The blue line is an editor aid, not part of the normal simulation.
-        // Do not leave it over the rails and train after P closes the editor.
         std::vector<glm::vec3> routePreviewPoints;
         if (routeBuildMode) {
             routePreviewPoints = customRoutePoints;
@@ -2012,8 +2069,6 @@ int main() {
                                 std::cout << "Cannot close route: rails are not connected" << std::endl;
                             }
                         } else {
-                            // Opening the editor must not erase a finished route.  Start a
-                            // replacement only after the user actually chooses its first point.
                             if (customRouteClosed) clearCustomRoute();
                             if (!customRouteLastTrackPoint) {
                                 customRoutePoints.push_back(snappedPoint->position);
@@ -2114,7 +2169,7 @@ int main() {
         glUseProgram(modelShader);
         glm::vec3 lightPos = glm::vec3(5.0f, 20.0f, 5.0f);
         glUniform3fv(glGetUniformLocation(modelShader, "lightPos"), 1, glm::value_ptr(lightPos));
-        glUniform3fv(glGetUniformLocation(modelShader, "viewPos"), 1, glm::value_ptr(cameraPos));
+        glUniform3fv(glGetUniformLocation(modelShader, "viewPos"), 1, glm::value_ptr(camera.position));
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
@@ -2125,7 +2180,6 @@ int main() {
                                glm::value_ptr(railTransform));
             rail.draw(modelShader);
         }
-
 
         drawTrackPreview(previewShader, previewPoints, view, projection, glm::vec3(0.1f, 1.0f, 0.15f));
         if (!routePreviewPoints.empty()) {
