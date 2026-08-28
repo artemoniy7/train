@@ -155,7 +155,7 @@ struct Mesh {
         glBindVertexArray(0);
     }
 
-    void draw(unsigned int shaderProgram) {
+    void draw(unsigned int shaderProgram) const {
         const auto diffuseTexture = std::find_if(
             textures.begin(), textures.end(),
             [](const Texture& texture) { return texture.type == "diffuse"; });
@@ -214,7 +214,7 @@ struct Model {
     unsigned int engineSoundBuffer = 0;
     float previousRoutePosition = 0.0f;
 
-    void draw(unsigned int shaderProgram) {
+    void draw(unsigned int shaderProgram) const {
         for (auto& mesh : meshes) {
             mesh.draw(shaderProgram);
         }
