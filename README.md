@@ -58,4 +58,5 @@ branch. Sharp junctions inserted while the simulator finds a shortest rail
 path are also stops, even when they are not a point clicked in the editor. An
 open route makes trains shuttle between its endpoints; at an endpoint, a train
 reverses its movement direction while keeping its current visual orientation. A
-closed route loops continuously.
+train also keeps its orientation when a route traverses a junction onto a rail
+in the opposite direction. A closed route loops continuously.
