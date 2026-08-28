@@ -1666,7 +1666,16 @@ void updateTrainMotion(Model& train, float dt) {
         : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
 
     const RouteSample sample = sampleActiveRoute(train.routePosition);
-    train.routeDirection = sample.direction * train.motionDirection;
+    // Keep the model's heading continuous across route junctions.  A custom
+    // route can traverse a rail segment in its reverse direction; its sampled
+    // tangent then flips by 180 degrees at the junction even though the train
+    // must continue moving without turning the whole consist around.
+    const glm::vec3 forwardDirection = sample.direction;
+    const glm::vec3 reverseDirection = -forwardDirection;
+    train.routeDirection = glm::dot(reverseDirection, train.routeDirection) >
+            glm::dot(forwardDirection, train.routeDirection)
+        ? reverseDirection
+        : forwardDirection;
     train.position = sample.position;
     train.position.y = train.routeStart.y;
     train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
