@@ -40,6 +40,14 @@ initial heading, curvature, and length; a later save replaces the previous map.
 The simulator loads this file automatically on startup; it uses the built-in
 demonstration track only when the file is absent or invalid.
 
+## Lighting and shadows
+
+The scene uses a directional sun and moon cycle that completes in one minute.
+The sky, ambient illumination, and shadow colour transition between daylight
+and moonlight automatically. A 1024×1024 depth shadow map with a small 3×3
+filter provides soft shadows from trains and rails onto the terrain while
+keeping the rendering cost modest.
+
 Press `P` to create a custom train route. Left-click rail segments to add blue
 route points; every connection follows the shortest path through the existing
 rails, including rail junctions, rather than a direct line or their creation
