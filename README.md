@@ -40,6 +40,14 @@ initial heading, curvature, and length; a later save replaces the previous map.
 The simulator loads this file automatically on startup; it uses the built-in
 demonstration track only when the file is absent or invalid.
 
+## Lighting and shadows
+
+The scene uses a directional sun and moon cycle that completes in one minute.
+The sky, ambient illumination, and shadow colour transition between daylight
+and moonlight automatically. A 1024×1024 depth shadow map with a small 3×3
+filter provides soft shadows from trains and rails onto the terrain while
+keeping the rendering cost modest.
+
 Press `P` to create a custom train route. Left-click rail segments to add blue
 route points; every connection follows the shortest path through the existing
 rails, including rail junctions, rather than a direct line or their creation
@@ -56,6 +64,7 @@ waits briefly before continuing to the next point. This also ensures a stop at
 a point before the route leaves it in the opposite direction or onto another
 branch. Sharp junctions inserted while the simulator finds a shortest rail
 path are also stops, even when they are not a point clicked in the editor. An
-open route makes trains shuttle between its endpoints; when reversing at an
-endpoint, the train turns so its leading end matches the new direction. A
-closed route loops continuously.
+open route makes trains shuttle between its endpoints; at an endpoint, a train
+reverses its movement direction while keeping its current visual orientation. A
+train also keeps its orientation when a route traverses a junction onto a rail
+in the opposite direction. A closed route loops continuously.

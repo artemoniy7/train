@@ -894,17 +894,19 @@ const char* modelVertexShader = R"(
     uniform mat4 model;
     uniform mat4 view;
     uniform mat4 projection;
-    uniform vec3 lightPos;
+    uniform mat4 lightSpaceMatrix;
 
     out vec3 Normal;
     out vec3 FragPos;
     out vec2 TexCoord;
+    out vec4 FragPosLightSpace;
 
     void main() {
         gl_Position = projection * view * model * vec4(aPos, 1.0);
         FragPos = vec3(model * vec4(aPos, 1.0));
         Normal = mat3(transpose(inverse(model))) * aNormal;
         TexCoord = aTexCoord;
+        FragPosLightSpace = lightSpaceMatrix * vec4(FragPos, 1.0);
     }
 )";
 
@@ -913,12 +915,32 @@ const char* modelFragmentShader = R"(
     in vec3 Normal;
     in vec3 FragPos;
     in vec2 TexCoord;
+    in vec4 FragPosLightSpace;
     out vec4 FragColor;
 
     uniform vec3 lightPos;
     uniform vec3 viewPos;
     uniform sampler2D texture_diffuse1;
+    uniform sampler2D shadowMap;
     uniform bool hasTexture;
+    uniform vec3 lightColor;
+    uniform float ambientStrength;
+    uniform float shadowStrength;
+
+    float shadowAmount(vec3 normal, vec3 lightDir) {
+        vec3 projected = FragPosLightSpace.xyz / FragPosLightSpace.w;
+        projected = projected * 0.5 + 0.5;
+        if (projected.z > 1.0 || projected.x < 0.0 || projected.x > 1.0 ||
+            projected.y < 0.0 || projected.y > 1.0) return 0.0;
+
+        float bias = max(0.0015 * (1.0 - dot(normal, lightDir)), 0.00035);
+        vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
+        float occlusion = 0.0;
+        for (int x = -1; x <= 1; ++x)
+            for (int y = -1; y <= 1; ++y)
+                occlusion += projected.z - bias > texture(shadowMap, projected.xy + vec2(x, y) * texel).r ? 1.0 : 0.0;
+        return occlusion / 9.0;
+    }
 
     void main() {
         vec3 color;
@@ -928,19 +950,19 @@ const char* modelFragmentShader = R"(
             color = vec3(0.8f, 0.2f, 0.2f);
         }
 
-        float ambientStrength = 0.3f;
         vec3 ambient = ambientStrength * color;
 
         vec3 norm = normalize(Normal);
         vec3 lightDir = normalize(lightPos - FragPos);
         float diff = max(dot(norm, lightDir), 0.0f);
-        vec3 diffuse = diff * color;
+        float shadow = shadowAmount(norm, lightDir) * shadowStrength;
+        vec3 diffuse = (1.0 - shadow) * diff * color * lightColor;
 
         float specularStrength = 0.5f;
         vec3 viewDir = normalize(viewPos - FragPos);
         vec3 reflectDir = reflect(-lightDir, norm);
         float spec = pow(max(dot(viewDir, reflectDir), 0.0f), 32);
-        vec3 specular = specularStrength * spec * vec3(1.0f, 1.0f, 1.0f);
+        vec3 specular = (1.0 - shadow) * specularStrength * spec * lightColor;
 
         vec3 result = ambient + diffuse + specular;
         FragColor = vec4(result, 1.0f);
@@ -955,19 +977,41 @@ const char* planeVertexShader = R"(
     uniform mat4 model;
     uniform mat4 view;
     uniform mat4 projection;
+    uniform mat4 lightSpaceMatrix;
 
     out vec2 TexCoord;
+    out vec4 FragPosLightSpace;
 
     void main() {
         gl_Position = projection * view * model * vec4(aPos, 1.0);
         TexCoord = aTexCoord;
+        FragPosLightSpace = lightSpaceMatrix * model * vec4(aPos, 1.0);
     }
 )";
 
 const char* planeFragmentShader = R"(
     #version 330 core
     in vec2 TexCoord;
+    in vec4 FragPosLightSpace;
     out vec4 FragColor;
+
+    uniform sampler2D shadowMap;
+    uniform vec3 lightColor;
+    uniform float ambientStrength;
+    uniform float shadowStrength;
+
+    float shadowAmount() {
+        vec3 projected = FragPosLightSpace.xyz / FragPosLightSpace.w;
+        projected = projected * 0.5 + 0.5;
+        if (projected.z > 1.0 || projected.x < 0.0 || projected.x > 1.0 ||
+            projected.y < 0.0 || projected.y > 1.0) return 0.0;
+        vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
+        float occlusion = 0.0;
+        for (int x = -1; x <= 1; ++x)
+            for (int y = -1; y <= 1; ++y)
+                occlusion += projected.z - 0.0008 > texture(shadowMap, projected.xy + vec2(x, y) * texel).r ? 1.0 : 0.0;
+        return occlusion / 9.0;
+    }
 
     void main() {
         float lineWidth = 0.03f;
@@ -980,8 +1024,25 @@ const char* planeFragmentShader = R"(
         vec3 lineColor = vec3(0.1f, 0.4f, 0.1f);
 
         vec3 finalColor = mix(baseColor, lineColor, gridLine);
+        float illumination = ambientStrength + (1.0 - shadowAmount() * shadowStrength);
+        finalColor *= illumination * lightColor;
         FragColor = vec4(finalColor, 1.0f);
     }
+)";
+
+const char* depthVertexShader = R"(
+    #version 330 core
+    layout (location = 0) in vec3 aPos;
+    uniform mat4 model;
+    uniform mat4 lightSpaceMatrix;
+    void main() {
+        gl_Position = lightSpaceMatrix * model * vec4(aPos, 1.0);
+    }
+)";
+
+const char* depthFragmentShader = R"(
+    #version 330 core
+    void main() { }
 )";
 
 const char* previewVertexShader = R"(
@@ -1021,6 +1082,59 @@ unsigned int createShaderProgram(const char* vertexSource, const char* fragmentS
     glDeleteShader(fragmentShader);
 
     return shaderProgram;
+}
+
+constexpr unsigned int shadowMapSize = 1024;
+constexpr float dayDurationSeconds = 60.0f;
+
+struct DayLighting {
+    glm::vec3 lightPosition;
+    glm::vec3 lightColor;
+    glm::vec3 skyColor;
+    float ambientStrength;
+    float shadowStrength;
+};
+
+DayLighting sampleDayLighting(float elapsedSeconds, const glm::vec3& focus) {
+    const float progress = std::fmod(elapsedSeconds, dayDurationSeconds) / dayDurationSeconds;
+    const float angle = progress * glm::two_pi<float>() - glm::half_pi<float>();
+    const glm::vec3 sunDirection = glm::normalize(glm::vec3(std::cos(angle), std::sin(angle), 0.35f));
+    const float daylight = glm::smoothstep(-0.08f, 0.15f, sunDirection.y);
+    const glm::vec3 moonDirection = -sunDirection;
+    const glm::vec3 daylightColor(1.0f, 0.92f, 0.75f);
+    const glm::vec3 moonlightColor(0.32f, 0.40f, 0.65f);
+
+    return {
+        focus + (daylight >= 0.5f ? sunDirection : moonDirection) * 90.0f,
+        glm::mix(moonlightColor, daylightColor, daylight),
+        glm::mix(glm::vec3(0.015f, 0.025f, 0.07f), glm::vec3(0.40f, 0.67f, 0.93f), daylight),
+        glm::mix(0.10f, 0.28f, daylight),
+        glm::mix(0.25f, 0.72f, daylight)
+    };
+}
+
+unsigned int createShadowMap(unsigned int& framebuffer) {
+    unsigned int shadowMap = 0;
+    glGenFramebuffers(1, &framebuffer);
+    glGenTextures(1, &shadowMap);
+    glBindTexture(GL_TEXTURE_2D, shadowMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, shadowMapSize, shadowMapSize, 0,
+                 GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    const float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowMap, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        std::cout << "Failed to create shadow framebuffer" << std::endl;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return shadowMap;
 }
 
 unsigned int planeVAO, planeVBO, planeEBO;
@@ -1666,7 +1780,16 @@ void updateTrainMotion(Model& train, float dt) {
         : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
 
     const RouteSample sample = sampleActiveRoute(train.routePosition);
-    train.routeDirection = sample.direction * train.motionDirection;
+    // Keep the model's heading continuous across route junctions.  A custom
+    // route can traverse a rail segment in its reverse direction; its sampled
+    // tangent then flips by 180 degrees at the junction even though the train
+    // must continue moving without turning the whole consist around.
+    const glm::vec3 forwardDirection = sample.direction;
+    const glm::vec3 reverseDirection = -forwardDirection;
+    train.routeDirection = glm::dot(reverseDirection, train.routeDirection) >
+            glm::dot(forwardDirection, train.routeDirection)
+        ? reverseDirection
+        : forwardDirection;
     train.position = sample.position;
     train.position.y = train.routeStart.y;
     train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
@@ -1754,6 +1877,9 @@ int main() {
     unsigned int modelShader = createShaderProgram(modelVertexShader, modelFragmentShader);
     unsigned int planeShader = createShaderProgram(planeVertexShader, planeFragmentShader);
     unsigned int previewShader = createShaderProgram(previewVertexShader, previewFragmentShader);
+    unsigned int depthShader = createShaderProgram(depthVertexShader, depthFragmentShader);
+    unsigned int shadowFramebuffer = 0;
+    const unsigned int shadowMap = createShadowMap(shadowFramebuffer);
 
     initPlane();
 
@@ -2030,9 +2156,6 @@ int main() {
             previousJPressed = jPressed;
         }
 
-        // Рендеринг
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
         glm::mat4 view = camera.getViewMatrix();
         trainAudio.updateListener(camera.position, camera.getFront(), glm::vec3(0.0f, 1.0f, 0.0f));
 
@@ -2044,6 +2167,37 @@ int main() {
         updateTrackJointSounds(trainAudio);
 
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 800.0f);
+        const DayLighting lighting = sampleDayLighting(currentFrame, camera.target);
+        const glm::mat4 lightProjection = glm::ortho(-60.0f, 60.0f, -60.0f, 60.0f, 1.0f, 180.0f);
+        const glm::mat4 lightView = glm::lookAt(lighting.lightPosition, camera.target, glm::vec3(0.0f, 1.0f, 0.0f));
+        const glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+
+        // One 1024px depth pass keeps the shadow cost modest while covering
+        // the playable area around the camera.
+        glViewport(0, 0, shadowMapSize, shadowMapSize);
+        glBindFramebuffer(GL_FRAMEBUFFER, shadowFramebuffer);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glUseProgram(depthShader);
+        glUniformMatrix4fv(glGetUniformLocation(depthShader, "lightSpaceMatrix"), 1, GL_FALSE,
+                           glm::value_ptr(lightSpaceMatrix));
+        glm::mat4 model = glm::mat4(1.0f);
+        glUniformMatrix4fv(glGetUniformLocation(depthShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        drawPlane();
+        for (const auto& segment : trackSegments) {
+            const glm::mat4 railTransform = segment.transform * rail.sourceTransform;
+            glUniformMatrix4fv(glGetUniformLocation(depthShader, "model"), 1, GL_FALSE,
+                               glm::value_ptr(railTransform));
+            rail.draw(depthShader);
+        }
+        for (const auto& train : trains) {
+            glUniformMatrix4fv(glGetUniformLocation(depthShader, "model"), 1, GL_FALSE,
+                               glm::value_ptr(train.transform));
+            train.draw(depthShader);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+        glClearColor(lighting.skyColor.r, lighting.skyColor.g, lighting.skyColor.b, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         std::vector<glm::vec3> previewPoints;
         std::vector<glm::vec3> routePreviewPoints;
@@ -2159,19 +2313,32 @@ int main() {
 
         // Плоскость
         glUseProgram(planeShader);
-        glm::mat4 model = glm::mat4(1.0f);
         glUniformMatrix4fv(glGetUniformLocation(planeShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(glGetUniformLocation(planeShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(planeShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(planeShader, "lightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+        glUniform3fv(glGetUniformLocation(planeShader, "lightColor"), 1, glm::value_ptr(lighting.lightColor));
+        glUniform1f(glGetUniformLocation(planeShader, "ambientStrength"), lighting.ambientStrength);
+        glUniform1f(glGetUniformLocation(planeShader, "shadowStrength"), lighting.shadowStrength);
+        glUniform1i(glGetUniformLocation(planeShader, "shadowMap"), 1);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, shadowMap);
         drawPlane();
 
         // Рельсы и поезда
         glUseProgram(modelShader);
-        glm::vec3 lightPos = glm::vec3(5.0f, 20.0f, 5.0f);
-        glUniform3fv(glGetUniformLocation(modelShader, "lightPos"), 1, glm::value_ptr(lightPos));
+        glUniform3fv(glGetUniformLocation(modelShader, "lightPos"), 1, glm::value_ptr(lighting.lightPosition));
         glUniform3fv(glGetUniformLocation(modelShader, "viewPos"), 1, glm::value_ptr(camera.position));
+        glUniform3fv(glGetUniformLocation(modelShader, "lightColor"), 1, glm::value_ptr(lighting.lightColor));
+        glUniform1f(glGetUniformLocation(modelShader, "ambientStrength"), lighting.ambientStrength);
+        glUniform1f(glGetUniformLocation(modelShader, "shadowStrength"), lighting.shadowStrength);
+        glUniform1i(glGetUniformLocation(modelShader, "shadowMap"), 1);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, shadowMap);
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(modelShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(modelShader, "lightSpaceMatrix"), 1, GL_FALSE,
+                           glm::value_ptr(lightSpaceMatrix));
 
         // Рисуем рельсы
         for (const auto& segment : trackSegments) {
@@ -2213,6 +2380,9 @@ int main() {
     glDeleteProgram(modelShader);
     glDeleteProgram(planeShader);
     glDeleteProgram(previewShader);
+    glDeleteProgram(depthShader);
+    glDeleteFramebuffers(1, &shadowFramebuffer);
+    glDeleteTextures(1, &shadowMap);
     glDeleteVertexArrays(1, &previewVAO);
     glDeleteBuffers(1, &previewVBO);
 
