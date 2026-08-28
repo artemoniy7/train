@@ -1666,7 +1666,11 @@ void updateTrainMotion(Model& train, float dt) {
         : (signedAcceleration * train.motionDirection < 0.0f ? 0.15f : 0.45f);
 
     const RouteSample sample = sampleActiveRoute(train.routePosition);
-    train.routeDirection = sample.direction * train.motionDirection;
+    // Keep the model facing the track's forward direction.  motionDirection
+    // only controls whether it travels toward increasing or decreasing route
+    // distance, so a reversal makes the train move backward without rotating
+    // the whole consist at the endpoint.
+    train.routeDirection = sample.direction;
     train.position = sample.position;
     train.position.y = train.routeStart.y;
     train.transform = createTrackAlignedTransform(train.position, train.routeDirection, train.scale);
