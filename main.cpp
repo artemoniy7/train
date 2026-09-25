@@ -1405,33 +1405,9 @@ bool fitCircularArc(const glm::vec3& start, const glm::vec3& end, float startHea
     return length > 0.05f;
 }
 
-std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec3& end,
-                                          std::optional<float> startHeading, TrackBuildTool tool,
-                                          std::optional<float> endHeading,
-                                          float assetScale, float routeDistance) {
-    const glm::vec3 offset = end - start;
-    const float chordLength = glm::length(glm::vec2(offset.x, offset.z));
-    if (chordLength < 0.05f) return {};
-
-    float heading = startHeading.value_or(std::atan2(offset.x, offset.z));
-    float curvature = 0.0f;
-    float totalLength = chordLength;
-    const float chordHeading = std::atan2(offset.x, offset.z);
-    if (tool == TrackBuildTool::Straight) {
-        if (startHeading && absoluteAngleDifference(heading, chordHeading) > maximumStraightJoinAngleRadians) return {};
-        if (endHeading && absoluteAngleDifference(chordHeading, *endHeading + glm::pi<float>()) > maximumStraightJoinAngleRadians) return {};
-        heading = chordHeading;
-    } else {
-        if (!fitCircularArc(start, end, heading, curvature, totalLength)) return {};
-        const float curveTurn = std::abs(curvature * totalLength);
-        if (std::abs(curvature) > 1.0f / minimumCurveRadiusMeters ||
-            curveTurn > maximumCurveTurnRadians) {
-            return {};
-        }
-        if (endHeading && absoluteAngleDifference(heading + curvature * totalLength,
-                                                  *endHeading + glm::pi<float>()) > trackJoinAngleToleranceRadians) return {};
-    }
-
+std::vector<TrackSegment> makeArcPieces(const glm::vec3& start, const glm::vec3& end,
+                                        float heading, float curvature, float totalLength,
+                                        float assetScale, float routeDistance) {
     const int pieceCount = std::max(1, static_cast<int>(std::ceil(totalLength / 5.0f)));
     const float pieceLength = totalLength / pieceCount;
     std::vector<TrackSegment> pieces;
@@ -1455,6 +1431,78 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
     // Never leave a microscopic visual gap at a snapped endpoint.
     if (!pieces.empty() && glm::length(pieces.back().end - end) <= trackGeometryToleranceMeters) pieces.back().end = end;
     return pieces;
+}
+
+std::vector<TrackSegment> fitArcPieces(const glm::vec3& start, const glm::vec3& end,
+                                       float heading, float assetScale, float routeDistance) {
+    float curvature = 0.0f;
+    float length = 0.0f;
+    if (!fitCircularArc(start, end, heading, curvature, length) ||
+        std::abs(curvature) > 1.0f / minimumCurveRadiusMeters ||
+        std::abs(curvature * length) > maximumCurveTurnRadians) return {};
+    return makeArcPieces(start, end, heading, curvature, length, assetScale, routeDistance);
+}
+
+// A tangent-constrained connector is sampled densely enough that each rail asset
+// remains straight, while the chain follows a cubic Hermite curve through both
+// snapped endpoints.  This supports any pair of endpoint headings rather than
+// rejecting the connection when a single circular arc is insufficient.
+std::vector<TrackSegment> fitBiarcPieces(const glm::vec3& start, const glm::vec3& end,
+                                         float startHeading, float endHeading,
+                                         float assetScale, float routeDistance) {
+    const glm::vec3 chord = end - start;
+    const float chordLength = glm::length(glm::vec2(chord.x, chord.z));
+    if (chordLength < 0.05f) return {};
+    const glm::vec3 startTangent = trackDirection(startHeading) * (chordLength / 3.0f);
+    const glm::vec3 endTangent = trackDirection(endHeading + glm::pi<float>()) * (chordLength / 3.0f);
+    const int pieceCount = std::max(2, static_cast<int>(std::ceil(chordLength / 1.0f)));
+    std::vector<glm::vec3> points;
+    points.reserve(pieceCount + 1);
+    for (int index = 0; index <= pieceCount; ++index) {
+        const float t = static_cast<float>(index) / pieceCount;
+        const float inverseT = 1.0f - t;
+        points.push_back(start * (2.0f * t * t * t - 3.0f * t * t + 1.0f) +
+                         startTangent * (t * t * t - 2.0f * t * t + t) +
+                         end * (-2.0f * t * t * t + 3.0f * t * t) +
+                         endTangent * (t * t * t - t * t));
+    }
+
+    std::vector<TrackSegment> pieces;
+    float distanceFromStart = routeDistance;
+    for (int index = 0; index < pieceCount; ++index) {
+        const glm::vec3 offset = points[index + 1] - points[index];
+        const float length = glm::length(glm::vec2(offset.x, offset.z));
+        if (length < 0.001f) continue;
+        const float heading = std::atan2(offset.x, offset.z);
+        const glm::vec3 center = (points[index] + points[index + 1]) * 0.5f;
+        glm::mat4 transform = createTrackAlignedTransform(center, trackDirection(heading), assetScale);
+        transform = glm::scale(transform, glm::vec3(1.0f, 1.0f, length / 5.0f));
+        pieces.push_back({transform, points[index], points[index + 1], heading, 0.0f, length, distanceFromStart});
+        distanceFromStart += length;
+    }
+    return pieces;
+}
+
+std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec3& end,
+                                          std::optional<float> startHeading, TrackBuildTool tool,
+                                          std::optional<float> endHeading,
+                                          float assetScale, float routeDistance) {
+    const glm::vec3 offset = end - start;
+    const float chordLength = glm::length(glm::vec2(offset.x, offset.z));
+    if (chordLength < 0.05f) return {};
+    const float chordHeading = std::atan2(offset.x, offset.z);
+    const float heading = startHeading.value_or(chordHeading);
+    if (tool == TrackBuildTool::Straight) {
+        if (startHeading && absoluteAngleDifference(heading, chordHeading) > maximumStraightJoinAngleRadians) return {};
+        if (endHeading && absoluteAngleDifference(chordHeading, *endHeading + glm::pi<float>()) > maximumStraightJoinAngleRadians) return {};
+        return makeArcPieces(start, end, chordHeading, 0.0f, chordLength, assetScale, routeDistance);
+    }
+
+    std::vector<TrackSegment> direct = fitArcPieces(start, end, heading, assetScale, routeDistance);
+    if (!endHeading || (!direct.empty() && absoluteAngleDifference(
+            direct.back().startHeadingRadians + direct.back().curvatureRadiansPerMeter * direct.back().length,
+            *endHeading + glm::pi<float>()) <= trackJoinAngleToleranceRadians)) return direct;
+    return fitBiarcPieces(start, end, heading, *endHeading, assetScale, routeDistance);
 }
 
 std::optional<glm::vec3> cursorGroundPosition(GLFWwindow* window, const glm::mat4& view,
