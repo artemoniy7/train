@@ -30,9 +30,11 @@ that sound is disabled.
 Press `H` to enter the track builder, `I` for straight track, and `J` for a
 curve. Clicking near either endpoint of existing track snaps the new track's
 starting point and tangent to that endpoint. A straight track must remain
-within 5° of that tangent; connecting two existing endpoints with the straight
-tool is intentionally ignored. Curves are limited to a 20 m minimum radius and
-90° maximum turn, preventing unrealistically sharp geometry.
+within 5° of both joined tangents, and can connect two existing endpoints when
+they are aligned. Curves first use a single arc when it matches both endpoint tangents. When the
+headings differ, the builder automatically samples a smooth tangent-constrained connection so
+both snapped rails meet at the correct angle. A single-arc curve is still
+limited to a 20 m minimum radius and 90° maximum turn, preventing sharp geometry.
 
 Pressing `Esc` saves all placed rail segments to `maps/latest_track_map.json`.
 The human-readable JSON file is versioned and stores each segment's endpoints,
