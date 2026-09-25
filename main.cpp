@@ -582,7 +582,6 @@ bool trackBuildMode = false;
 TrackBuildTool trackBuildTool = TrackBuildTool::Straight;
 std::optional<glm::vec3> trackBuildStart;
 std::optional<float> trackBuildStartHeading;
-bool trackBuildStartIsConnected = false;
 bool previousHPressed = false;
 bool previousIPressed = false;
 bool previousJPressed = false;
@@ -601,12 +600,17 @@ std::optional<RoutePoint> customRouteLastTrackPoint;
 
 constexpr float trackSnapDistanceMeters = 1.25f;
 constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
+constexpr float trackJoinAngleToleranceRadians = glm::radians(3.0f);
 constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
 constexpr float minimumCurveRadiusMeters = 20.0f;
+constexpr float trackGeometryToleranceMeters = 0.02f;
 constexpr float routeCloseSnapDistanceMeters = 1.25f;
 constexpr float routeJunctionToleranceMeters = 0.05f;
 constexpr float routeStopDirectionChangeDotProduct = 0.95f;
 constexpr float routeReversalStopDurationSeconds = 2.0f;
+
+glm::vec3 trackDirection(float heading);
+glm::vec3 trackPosition(const glm::vec3& start, float heading, float curvature, float distance);
 
 bool saveTrackMap() {
     const fs::path mapDirectory = "maps";
@@ -1248,30 +1252,15 @@ RouteSample sampleTrackRoute(float routePosition) {
             const float localDistance = clampedPosition - segment.distanceFromRouteStart;
             const float heading = segment.startHeadingRadians +
                 segment.curvatureRadiansPerMeter * localDistance;
-            glm::vec3 position;
-
-            if (std::abs(segment.curvatureRadiansPerMeter) < 0.000001f) {
-                position = segment.start + glm::vec3(
-                    std::sin(segment.startHeadingRadians), 0.0f,
-                    std::cos(segment.startHeadingRadians)) * localDistance;
-            } else {
-                const float inverseCurvature = 1.0f / segment.curvatureRadiansPerMeter;
-                position = segment.start + glm::vec3(
-                    (std::cos(segment.startHeadingRadians) - std::cos(heading)) * inverseCurvature,
-                    0.0f,
-                    (std::sin(heading) - std::sin(segment.startHeadingRadians)) * inverseCurvature);
-            }
-
-            return {
-                position,
-                glm::vec3(std::sin(heading), 0.0f, std::cos(heading))
-            };
+            return {trackPosition(segment.start, segment.startHeadingRadians,
+                                  segment.curvatureRadiansPerMeter, localDistance),
+                    trackDirection(heading)};
         }
     }
 
     const float lastHeading = lastSegment.startHeadingRadians +
         lastSegment.curvatureRadiansPerMeter * lastSegment.length;
-    return {lastSegment.end, glm::vec3(std::sin(lastHeading), 0.0f, std::cos(lastHeading))};
+    return {lastSegment.end, trackDirection(lastHeading)};
 }
 
 glm::mat4 createTrackAlignedTransform(
@@ -1312,6 +1301,14 @@ bool loadTrackMap(float assetScale) {
             const glm::vec3 endPoint(end[0].get<float>(), end[1].get<float>(), end[2].get<float>());
             const float heading = entry.at("start_heading_radians").get<float>();
             const float curvature = entry.at("curvature_radians_per_meter").get<float>();
+            if (!std::isfinite(length) || !std::isfinite(heading) || !std::isfinite(curvature) ||
+                !std::isfinite(startPoint.x) || !std::isfinite(startPoint.y) || !std::isfinite(startPoint.z) ||
+                !std::isfinite(endPoint.x) || !std::isfinite(endPoint.y) || !std::isfinite(endPoint.z) ||
+                std::abs(endPoint.y - startPoint.y) > trackGeometryToleranceMeters ||
+                glm::length(trackPosition(startPoint, heading, curvature, length) - endPoint) > trackGeometryToleranceMeters) {
+                std::cout << "Ignoring malformed track segment in " << mapPath << std::endl;
+                continue;
+            }
             const float midpointHeading = heading + curvature * length * 0.5f;
             glm::vec3 center = (startPoint + endPoint) * 0.5f;
             if (std::abs(curvature) >= 0.000001f) {
@@ -1367,6 +1364,47 @@ float absoluteAngleDifference(float first, float second) {
     return std::abs(std::atan2(std::sin(first - second), std::cos(first - second)));
 }
 
+glm::vec3 trackDirection(float heading) {
+    return {std::sin(heading), 0.0f, std::cos(heading)};
+}
+
+glm::vec3 trackLeftNormal(float heading) {
+    return {std::cos(heading), 0.0f, -std::sin(heading)};
+}
+
+glm::vec3 trackPosition(const glm::vec3& start, float heading, float curvature, float distance) {
+    if (std::abs(curvature) < 0.000001f) return start + trackDirection(heading) * distance;
+    const float endHeading = heading + curvature * distance;
+    const float inverseCurvature = 1.0f / curvature;
+    return start + glm::vec3((std::cos(heading) - std::cos(endHeading)) * inverseCurvature, 0.0f,
+                             (std::sin(endHeading) - std::sin(heading)) * inverseCurvature);
+}
+
+// Fits the only circular arc that can leave start in startHeading and reach end.
+// A circular arc cannot generally satisfy two arbitrary endpoint tangents, so the
+// caller validates the tangent at the snapped destination after this calculation.
+bool fitCircularArc(const glm::vec3& start, const glm::vec3& end, float startHeading,
+                    float& curvature, float& length) {
+    const glm::vec3 chord = end - start;
+    const float chordLengthSquared = chord.x * chord.x + chord.z * chord.z;
+    if (chordLengthSquared < 0.05f * 0.05f) return false;
+
+    const float forward = glm::dot(chord, trackDirection(startHeading));
+    const float left = glm::dot(chord, trackLeftNormal(startHeading));
+    curvature = 2.0f * left / chordLengthSquared;
+    if (std::abs(curvature) < 0.000001f) {
+        if (forward <= 0.0f) return false;
+        length = std::sqrt(chordLengthSquared);
+        return true;
+    }
+
+    // sin(turn) = curvature * forward and cos(turn) = 1 - curvature * left.
+    // atan2 preserves the direction of travel and avoids the supplementary-arc bug.
+    const float turn = std::atan2(curvature * forward, 1.0f - curvature * left);
+    length = turn / curvature;
+    return length > 0.05f;
+}
+
 std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec3& end,
                                           std::optional<float> startHeading, TrackBuildTool tool,
                                           std::optional<float> endHeading,
@@ -1379,53 +1417,19 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
     float curvature = 0.0f;
     float totalLength = chordLength;
     const float chordHeading = std::atan2(offset.x, offset.z);
-    if (tool == TrackBuildTool::Straight && startHeading &&
-        absoluteAngleDifference(heading, chordHeading) > maximumStraightJoinAngleRadians) {
-        return {};
-    }
-    if (tool == TrackBuildTool::Curve) {
-        if (endHeading) {
-            const float reversedHeading = *endHeading + glm::pi<float>();
-            const float selectedEndHeading = std::abs(std::atan2(
-                std::sin(*endHeading - chordHeading), std::cos(*endHeading - chordHeading)))
-                <= std::abs(std::atan2(std::sin(reversedHeading - chordHeading),
-                                       std::cos(reversedHeading - chordHeading)))
-                ? *endHeading : reversedHeading;
-            const float reverseHeading = selectedEndHeading + glm::pi<float>();
-            const glm::vec3 reverseOffset = start - end;
-            const glm::vec3 reverseNormal(std::cos(reverseHeading), 0.0f, -std::sin(reverseHeading));
-            const float reverseCurvature = 2.0f * glm::dot(reverseOffset, reverseNormal) /
-                (chordLength * chordLength);
-            if (std::abs(reverseCurvature) > 0.0001f) {
-                const glm::vec3 center = end + reverseNormal / reverseCurvature;
-                const glm::vec3 fromCenterEnd = end - center;
-                const glm::vec3 fromCenterStart = start - center;
-                const float reverseTurn = std::atan2(
-                    fromCenterEnd.x * fromCenterStart.z - fromCenterEnd.z * fromCenterStart.x,
-                    glm::dot(fromCenterEnd, fromCenterStart));
-                totalLength = std::abs(reverseTurn / reverseCurvature);
-                curvature = -reverseCurvature;
-                heading = selectedEndHeading - curvature * totalLength;
-            }
-        } else {
-            const glm::vec3 normal(std::cos(heading), 0.0f, -std::sin(heading));
-            curvature = 2.0f * glm::dot(offset, normal) / (chordLength * chordLength);
-            if (std::abs(curvature) > 0.0001f) {
-                const glm::vec3 center = start + normal / curvature;
-                const glm::vec3 fromCenterStart = start - center;
-                const glm::vec3 fromCenterEnd = end - center;
-                const float turn = std::atan2(
-                    fromCenterStart.x * fromCenterEnd.z - fromCenterStart.z * fromCenterEnd.x,
-                    glm::dot(fromCenterStart, fromCenterEnd));
-                totalLength = std::abs(turn / curvature);
-            }
-        }
-        if (totalLength < 0.05f) curvature = 0.0f;
+    if (tool == TrackBuildTool::Straight) {
+        if (startHeading && absoluteAngleDifference(heading, chordHeading) > maximumStraightJoinAngleRadians) return {};
+        if (endHeading && absoluteAngleDifference(chordHeading, *endHeading + glm::pi<float>()) > maximumStraightJoinAngleRadians) return {};
+        heading = chordHeading;
+    } else {
+        if (!fitCircularArc(start, end, heading, curvature, totalLength)) return {};
         const float curveTurn = std::abs(curvature * totalLength);
         if (std::abs(curvature) > 1.0f / minimumCurveRadiusMeters ||
             curveTurn > maximumCurveTurnRadians) {
             return {};
         }
+        if (endHeading && absoluteAngleDifference(heading + curvature * totalLength,
+                                                  *endHeading + glm::pi<float>()) > trackJoinAngleToleranceRadians) return {};
     }
 
     const int pieceCount = std::max(1, static_cast<int>(std::ceil(totalLength / 5.0f)));
@@ -1438,19 +1442,8 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
         const float midpointHeading = (heading + endHeading) * 0.5f;
         glm::vec3 pieceEnd;
         glm::vec3 center;
-        if (std::abs(curvature) < 0.000001f) {
-            const glm::vec3 direction(std::sin(heading), 0.0f, std::cos(heading));
-            pieceEnd = cursor + direction * pieceLength;
-            center = cursor + direction * (pieceLength * 0.5f);
-        } else {
-            const float inverseCurvature = 1.0f / curvature;
-            pieceEnd = cursor + glm::vec3(
-                (std::cos(heading) - std::cos(endHeading)) * inverseCurvature, 0.0f,
-                (std::sin(endHeading) - std::sin(heading)) * inverseCurvature);
-            center = cursor + glm::vec3(
-                (std::cos(heading) - std::cos(midpointHeading)) * inverseCurvature, 0.0f,
-                (std::sin(midpointHeading) - std::sin(heading)) * inverseCurvature);
-        }
+        pieceEnd = trackPosition(cursor, heading, curvature, pieceLength);
+        center = trackPosition(cursor, heading, curvature, pieceLength * 0.5f);
         const glm::vec3 midpointDirection(std::sin(midpointHeading), 0.0f, std::cos(midpointHeading));
         glm::mat4 transform = createTrackAlignedTransform(center, midpointDirection, assetScale);
         transform = glm::scale(transform, glm::vec3(1.0f, 1.0f, pieceLength / 5.0f));
@@ -1459,6 +1452,8 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
         cursor = pieceEnd;
         heading = endHeading;
     }
+    // Never leave a microscopic visual gap at a snapped endpoint.
+    if (!pieces.empty() && glm::length(pieces.back().end - end) <= trackGeometryToleranceMeters) pieces.back().end = end;
     return pieces;
 }
 
@@ -1523,14 +1518,43 @@ std::optional<RoutePoint> snapRoutePoint(const glm::vec3& position) {
     float closestDistance = trackSnapDistanceMeters;
     for (size_t segmentIndex = 0; segmentIndex < trackSegments.size(); ++segmentIndex) {
         const TrackSegment& segment = trackSegments[segmentIndex];
-        const glm::vec3 offset = segment.end - segment.start;
-        const float squaredLength = glm::dot(offset, offset);
-        if (squaredLength <= 0.0001f) continue;
-        const float t = std::clamp(glm::dot(position - segment.start, offset) / squaredLength, 0.0f, 1.0f);
-        const glm::vec3 projected = segment.start + offset * t;
+        if (segment.length <= 0.0001f) continue;
+
+        // Project onto the actual arc, not its chord.  Chord projection makes
+        // route points visibly drift inside curved rail pieces.
+        constexpr int samples = 12;
+        int bestSample = 0;
+        float bestSampleDistanceSquared = std::numeric_limits<float>::infinity();
+        for (int sample = 0; sample <= samples; ++sample) {
+            const float distanceAlong = segment.length * static_cast<float>(sample) / samples;
+            const glm::vec3 delta = position - trackPosition(
+                segment.start, segment.startHeadingRadians, segment.curvatureRadiansPerMeter, distanceAlong);
+            const float distanceSquared = glm::dot(delta, delta);
+            if (distanceSquared < bestSampleDistanceSquared) {
+                bestSampleDistanceSquared = distanceSquared;
+                bestSample = sample;
+            }
+        }
+        float lower = segment.length * std::max(0, bestSample - 1) / samples;
+        float upper = segment.length * std::min(samples, bestSample + 1) / samples;
+        for (int iteration = 0; iteration < 18; ++iteration) {
+            const float left = (2.0f * lower + upper) / 3.0f;
+            const float right = (lower + 2.0f * upper) / 3.0f;
+            const glm::vec3 leftDelta = position - trackPosition(
+                segment.start, segment.startHeadingRadians, segment.curvatureRadiansPerMeter, left);
+            const glm::vec3 rightDelta = position - trackPosition(
+                segment.start, segment.startHeadingRadians, segment.curvatureRadiansPerMeter, right);
+            const float leftDistanceSquared = glm::dot(leftDelta, leftDelta);
+            const float rightDistanceSquared = glm::dot(rightDelta, rightDelta);
+            if (leftDistanceSquared <= rightDistanceSquared) upper = right;
+            else lower = left;
+        }
+        const float distanceAlong = (lower + upper) * 0.5f;
+        const glm::vec3 projected = trackPosition(segment.start, segment.startHeadingRadians,
+                                                   segment.curvatureRadiansPerMeter, distanceAlong);
         const float distance = glm::length(position - projected);
         if (distance < closestDistance) {
-            closest = {projected, segmentIndex, t * segment.length};
+            closest = {projected, segmentIndex, distanceAlong};
             closestDistance = distance;
         }
     }
@@ -2118,7 +2142,6 @@ int main() {
             }
             trackBuildStart.reset();
             trackBuildStartHeading.reset();
-            trackBuildStartIsConnected = false;
             firstMouse = true;
         }
         previousHPressed = hPressed;
@@ -2260,31 +2283,24 @@ int main() {
             if (rightPressed && !previousRightMousePressed) {
                 trackBuildStart.reset();
                 trackBuildStartHeading.reset();
-                trackBuildStartIsConnected = false;
-            }
+                }
             if (cursorPosition) {
                 const TrackConnection target = snapTrackConnection(*cursorPosition);
                 if (leftPressed && !previousLeftMousePressed) {
                     if (!trackBuildStart) {
                         trackBuildStart = target.position;
                         trackBuildStartHeading = target.heading;
-                        trackBuildStartIsConnected = target.isConnected;
                     } else {
                         const float routeDistance = trackSegments.empty() ? 0.0f
                             : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
                         std::vector<TrackSegment> pieces;
-                        if (!(trackBuildTool == TrackBuildTool::Straight &&
-                              trackBuildStartIsConnected && target.isConnected)) {
-                            pieces = makeTrackPieces(
-                                *trackBuildStart, target.position, trackBuildStartHeading,
-                                trackBuildTool, target.heading, assetScale, routeDistance);
-                        }
+                        pieces = makeTrackPieces(*trackBuildStart, target.position, trackBuildStartHeading,
+                                                trackBuildTool, target.heading, assetScale, routeDistance);
                         if (!pieces.empty()) {
                             const TrackSegment& lastPiece = pieces.back();
                             trackBuildStart = lastPiece.end;
                             trackBuildStartHeading = lastPiece.startHeadingRadians +
                                 lastPiece.curvatureRadiansPerMeter * lastPiece.length;
-                            trackBuildStartIsConnected = true;
                             trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
                         }
                     }
@@ -2293,11 +2309,8 @@ int main() {
                     const float routeDistance = trackSegments.empty() ? 0.0f
                         : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
                     const std::vector<TrackSegment> previewPieces =
-                        trackBuildTool == TrackBuildTool::Straight && trackBuildStartIsConnected &&
-                            target.isConnected
-                        ? std::vector<TrackSegment>{}
-                        : makeTrackPieces(*trackBuildStart, target.position, trackBuildStartHeading,
-                                          trackBuildTool, target.heading, assetScale, routeDistance);
+                        makeTrackPieces(*trackBuildStart, target.position, trackBuildStartHeading,
+                                        trackBuildTool, target.heading, assetScale, routeDistance);
                     for (const TrackSegment& piece : previewPieces) {
                         if (previewPoints.empty()) previewPoints.push_back(piece.start + glm::vec3(0.0f, 0.03f, 0.0f));
                         previewPoints.push_back(piece.end + glm::vec3(0.0f, 0.03f, 0.0f));
