@@ -605,6 +605,7 @@ constexpr float trackJoinAngleToleranceRadians = glm::radians(3.0f);
 constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
 constexpr float minimumCurveRadiusMeters = 20.0f;
 constexpr float trackHeadingAssistAngleRadians = glm::radians(10.0f);
+constexpr float trackAssetScale = 0.5f;
 constexpr float trackGeometryToleranceMeters = 0.02f;
 constexpr float routeCloseSnapDistanceMeters = 1.25f;
 constexpr float routeJunctionToleranceMeters = 0.05f;
@@ -1339,22 +1340,40 @@ struct TrackConnection {
     glm::vec3 position;
     std::optional<float> heading;
     bool isConnected = false;
+    std::optional<size_t> segmentIndex;
+    float distanceAlongSegment = 0.0f;
 };
 
 TrackConnection snapTrackConnection(const glm::vec3& position) {
-    TrackConnection closest{position, std::nullopt, false};
+    TrackConnection closest{position, std::nullopt, false, std::nullopt, 0.0f};
     float closestDistance = trackSnapDistanceMeters;
-    for (const TrackSegment& segment : trackSegments) {
+    for (size_t segmentIndex = 0; segmentIndex < trackSegments.size(); ++segmentIndex) {
+        const TrackSegment& segment = trackSegments[segmentIndex];
         const float endHeading = segment.startHeadingRadians +
             segment.curvatureRadiansPerMeter * segment.length;
         const std::array<TrackConnection, 2> endpoints{{
-            {segment.start, segment.startHeadingRadians + glm::pi<float>(), true},
-            {segment.end, endHeading, true}
+            {segment.start, segment.startHeadingRadians + glm::pi<float>(), true, segmentIndex, 0.0f},
+            {segment.end, endHeading, true, segmentIndex, segment.length}
         }};
         for (const TrackConnection& endpoint : endpoints) {
             const float distance = glm::length(position - endpoint.position);
             if (distance < closestDistance) {
                 closest = endpoint;
+                closestDistance = distance;
+            }
+        }
+
+        // A rail can be clicked anywhere, not only at its ends.  The returned
+        // point becomes a turnout node before the new rail is laid.
+        constexpr int clickSamplesPerRail = 20;
+        for (int sample = 1; sample < clickSamplesPerRail; ++sample) {
+            const float distanceAlong = segment.length * sample / clickSamplesPerRail;
+            const glm::vec3 candidate = trackPosition(segment.start, segment.startHeadingRadians,
+                                                      segment.curvatureRadiansPerMeter, distanceAlong);
+            const float distance = glm::length(position - candidate);
+            if (distance < closestDistance) {
+                closest = {candidate, segment.startHeadingRadians +
+                    segment.curvatureRadiansPerMeter * distanceAlong, true, segmentIndex, distanceAlong};
                 closestDistance = distance;
             }
         }
@@ -1493,6 +1512,42 @@ std::vector<TrackSegment> fitBiarcPieces(const glm::vec3& start, const glm::vec3
                 1.0f / minimumCurveRadiusMeters) return {};
     }
     return pieces;
+}
+
+void refreshTrackRouteDistances() {
+    float distance = 0.0f;
+    for (TrackSegment& segment : trackSegments) {
+        segment.distanceFromRouteStart = distance;
+        distance += segment.length;
+    }
+}
+
+// Turn a click in the middle of an existing rail into two rail endpoints.  The
+// new endpoint is then shared by the outgoing branch, so route finding sees a
+// real turnout rather than two rails that merely overlap visually.
+void splitTrackAtConnection(const TrackConnection& connection) {
+    if (!connection.segmentIndex || *connection.segmentIndex >= trackSegments.size()) return;
+    const size_t index = *connection.segmentIndex;
+    const TrackSegment original = trackSegments[index];
+    const float splitDistance = connection.distanceAlongSegment;
+    constexpr float endpointMarginMeters = 0.05f;
+    if (splitDistance <= endpointMarginMeters || splitDistance >= original.length - endpointMarginMeters) return;
+
+    const glm::vec3 splitPosition = trackPosition(original.start, original.startHeadingRadians,
+                                                  original.curvatureRadiansPerMeter, splitDistance);
+    std::vector<TrackSegment> before = makeArcPieces(
+        original.start, splitPosition, original.startHeadingRadians,
+        original.curvatureRadiansPerMeter, splitDistance, trackAssetScale, 0.0f);
+    std::vector<TrackSegment> after = makeArcPieces(
+        splitPosition, original.end,
+        original.startHeadingRadians + original.curvatureRadiansPerMeter * splitDistance,
+        original.curvatureRadiansPerMeter, original.length - splitDistance, trackAssetScale, 0.0f);
+    if (before.empty() || after.empty()) return;
+
+    trackSegments.erase(trackSegments.begin() + index);
+    trackSegments.insert(trackSegments.begin() + index, before.begin(), before.end());
+    trackSegments.insert(trackSegments.begin() + index + before.size(), after.begin(), after.end());
+    refreshTrackRouteDistances();
 }
 
 std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec3& end,
@@ -2403,9 +2458,13 @@ int main() {
                     : target.position;
                 if (leftPressed && !previousLeftMousePressed) {
                     if (!trackBuildStart) {
+                        splitTrackAtConnection(target);
                         trackBuildStart = target.position;
                         trackBuildStartHeading = target.heading;
                     } else {
+                        // Clicking an existing rail as the destination creates
+                        // the other half of a turnout as well.
+                        splitTrackAtConnection(target);
                         const float routeDistance = trackSegments.empty() ? 0.0f
                             : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
                         std::vector<TrackSegment> pieces;

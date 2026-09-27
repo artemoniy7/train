@@ -30,7 +30,9 @@ that sound is disabled.
 Press `H` to enter the track builder. `I` and `J` both select the smooth-rail
 tool (the `I` shortcut is retained for compatibility). Clicking near either
 endpoint of existing track snaps the new track's starting point and tangent to
-that endpoint. While extending a snapped rail, a small sideways mouse movement
+that endpoint. Clicking the middle of an existing rail splits it at the click
+and starts (or ends) a connected turnout there, so outgoing rails are part of
+the same network rather than only visually touching. While extending a snapped rail, a small sideways mouse movement
 is projected onto its outgoing tangent, making it easy to continue straight;
 moving farther sideways starts a curve. A proposed build is green when it is
 valid and red when its radius or connection is impossible. Curves first use a
