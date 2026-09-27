@@ -1572,6 +1572,53 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
     return fitBiarcPieces(start, end, heading, *endHeading, assetScale, routeDistance);
 }
 
+float totalTrackLength(const std::vector<TrackSegment>& pieces) {
+    float length = 0.0f;
+    for (const TrackSegment& piece : pieces) length += piece.length;
+    return length;
+}
+
+// A click in the interior of a rail has two valid travel directions.  Try both
+// tangents and keep the smoothest feasible connector.  This is important when
+// the cursor approaches the far side of a rail: a branch should merge with the
+// rail tangent, not be forced into a sharp corner.
+std::vector<TrackSegment> makeTrackPiecesToConnection(
+    const glm::vec3& start, const glm::vec3& end, std::optional<float> startHeading,
+    TrackBuildTool tool, const TrackConnection& target, float assetScale, float routeDistance) {
+    std::vector<TrackSegment> best = makeTrackPieces(start, end, startHeading, tool,
+                                                      target.heading, assetScale, routeDistance);
+    if (!target.segmentIndex || !target.heading || *target.segmentIndex >= trackSegments.size()) return best;
+
+    const TrackSegment& targetSegment = trackSegments[*target.segmentIndex];
+    constexpr float endpointMarginMeters = 0.05f;
+    const bool isInterior = target.distanceAlongSegment > endpointMarginMeters &&
+        target.distanceAlongSegment < targetSegment.length - endpointMarginMeters;
+    if (!isInterior) return best;
+
+    const std::vector<TrackSegment> opposite = makeTrackPieces(
+        start, end, startHeading, tool, *target.heading + glm::pi<float>(), assetScale, routeDistance);
+    if (best.empty() || (!opposite.empty() && totalTrackLength(opposite) < totalTrackLength(best))) {
+        return opposite;
+    }
+    return best;
+}
+
+// Starting from an existing rail should feel like extending that rail, rather
+// than require pixel-perfect mouse alignment.  Preserve an explicit endpoint
+// snap (it is a deliberate connection), otherwise project small sideways
+// movement onto the outgoing tangent.
+glm::vec3 assistedTrackTarget(const glm::vec3& start, std::optional<float> startHeading,
+                              const TrackConnection& snappedTarget) {
+    if (!startHeading || snappedTarget.isConnected) return snappedTarget.position;
+    const glm::vec3 offset = snappedTarget.position - start;
+    const float forward = glm::dot(offset, trackDirection(*startHeading));
+    const float sideways = std::abs(glm::dot(offset, trackLeftNormal(*startHeading)));
+    if (forward > 0.05f && sideways <= forward * std::tan(trackHeadingAssistAngleRadians)) {
+        return start + trackDirection(*startHeading) * forward;
+    }
+    return snappedTarget.position;
+}
+
 // Starting from an existing rail should feel like extending that rail, rather
 // than require pixel-perfect mouse alignment.  Preserve an explicit endpoint
 // snap (it is a deliberate connection), otherwise project small sideways
@@ -2464,13 +2511,13 @@ int main() {
                     } else {
                         // Clicking an existing rail as the destination creates
                         // the other half of a turnout as well.
-                        splitTrackAtConnection(target);
                         const float routeDistance = trackSegments.empty() ? 0.0f
                             : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                        std::vector<TrackSegment> pieces;
-                        pieces = makeTrackPieces(*trackBuildStart, buildTarget, trackBuildStartHeading,
-                                                trackBuildTool, target.heading, assetScale, routeDistance);
+                        std::vector<TrackSegment> pieces = makeTrackPiecesToConnection(
+                            *trackBuildStart, buildTarget, trackBuildStartHeading,
+                            trackBuildTool, target, assetScale, routeDistance);
                         if (!pieces.empty()) {
+                            splitTrackAtConnection(target);
                             const TrackSegment& lastPiece = pieces.back();
                             trackBuildStart = lastPiece.end;
                             trackBuildStartHeading = lastPiece.startHeadingRadians +
@@ -2483,8 +2530,8 @@ int main() {
                     const float routeDistance = trackSegments.empty() ? 0.0f
                         : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
                     const std::vector<TrackSegment> previewPieces =
-                        makeTrackPieces(*trackBuildStart, buildTarget, trackBuildStartHeading,
-                                        trackBuildTool, target.heading, assetScale, routeDistance);
+                        makeTrackPiecesToConnection(*trackBuildStart, buildTarget, trackBuildStartHeading,
+                                                    trackBuildTool, target, assetScale, routeDistance);
                     trackPreviewValid = !previewPieces.empty();
                     for (const TrackSegment& piece : previewPieces) {
                         if (previewPoints.empty()) previewPoints.push_back(piece.start + glm::vec3(0.0f, 0.03f, 0.0f));

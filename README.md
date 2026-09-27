@@ -34,8 +34,10 @@ that endpoint. Clicking the middle of an existing rail splits it at the click
 and starts (or ends) a connected turnout there, so outgoing rails are part of
 the same network rather than only visually touching. While extending a snapped rail, a small sideways mouse movement
 is projected onto its outgoing tangent, making it easy to continue straight;
-moving farther sideways starts a curve. A proposed build is green when it is
-valid and red when its radius or connection is impossible. Curves first use a
+moving farther sideways starts a curve. When hovering another rail, both of
+its travel directions are evaluated and the shortest smooth tangent join is
+previewed. A proposed build is green when it is valid and red when its radius
+or either smooth connection is impossible. Curves first use a
 single arc when it matches both endpoint tangents. When the headings differ,
 the builder samples a tangent-constrained smooth connection, so both snapped
 rails meet without a sharp bend. Curves have a 20 m minimum radius and a 90°
