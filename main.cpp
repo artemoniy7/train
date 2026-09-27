@@ -1619,6 +1619,22 @@ glm::vec3 assistedTrackTarget(const glm::vec3& start, std::optional<float> start
     return snappedTarget.position;
 }
 
+// Starting from an existing rail should feel like extending that rail, rather
+// than require pixel-perfect mouse alignment.  Preserve an explicit endpoint
+// snap (it is a deliberate connection), otherwise project small sideways
+// movement onto the outgoing tangent.
+glm::vec3 assistedTrackTarget(const glm::vec3& start, std::optional<float> startHeading,
+                              const TrackConnection& snappedTarget) {
+    if (!startHeading || snappedTarget.isConnected) return snappedTarget.position;
+    const glm::vec3 offset = snappedTarget.position - start;
+    const float forward = glm::dot(offset, trackDirection(*startHeading));
+    const float sideways = std::abs(glm::dot(offset, trackLeftNormal(*startHeading)));
+    if (forward > 0.05f && sideways <= forward * std::tan(trackHeadingAssistAngleRadians)) {
+        return start + trackDirection(*startHeading) * forward;
+    }
+    return snappedTarget.position;
+}
+
 std::optional<glm::vec3> cursorGroundPosition(GLFWwindow* window, const glm::mat4& view,
                                               const glm::mat4& projection) {
     double cursorX, cursorY;
