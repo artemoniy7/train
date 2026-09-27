@@ -27,17 +27,21 @@ that sound is disabled.
 
 ## Track builder
 
-Press `H` to enter the track builder, `I` for straight track, and `J` for a
-curve. Clicking near either endpoint of existing track snaps the new track's
-starting point and tangent to that endpoint. A straight track must remain
-within 5° of both joined tangents, and can connect two existing endpoints when
-they are aligned. Curves first use a single arc when it matches both endpoint tangents. When the
-headings differ, the builder automatically samples a smooth tangent-constrained connection so
-both snapped rails meet at the correct angle. A single-arc curve is still
-limited to a 20 m minimum radius and 90° maximum turn, preventing sharp geometry.
+Press `H` to enter the track builder. `I` and `J` both select the smooth-rail
+tool (the `I` shortcut is retained for compatibility). Clicking near either
+endpoint of existing track snaps the new track's starting point and tangent to
+that endpoint. Clicking the middle of an existing rail splits it at the click
+and starts (or ends) a connected turnout there, so outgoing rails are part of
+the same network rather than only visually touching. While extending a snapped rail, a small sideways mouse movement
+is projected onto its outgoing tangent, making it easy to continue straight;
+moving farther sideways starts a curve. A proposed build is green when it is
+valid and red when its radius or connection is impossible. Curves first use a
+single arc when it matches both endpoint tangents. When the headings differ,
+the builder samples a tangent-constrained smooth connection, so both snapped
+rails meet without a sharp bend. Curves have a 20 m minimum radius and a 90°
+maximum single-arc turn.
 
-Pressing `Esc` saves all placed rail segments to `maps/latest_track_map.json`.
-The human-readable JSON file is versioned and stores each segment's endpoints,
+When saving, the human-readable JSON map stores each segment's endpoints,
 initial heading, curvature, and length; a later save replaces the previous map.
 The simulator loads this file automatically on startup; it uses the built-in
 demonstration track only when the file is absent or invalid.
@@ -53,13 +57,13 @@ keeping the rendering cost modest.
 Press `P` to create a custom train route. Left-click rail segments to add blue
 route points; every connection follows the shortest path through the existing
 rails, including rail junctions, rather than a direct line or their creation
-order. Disconnected rails cannot be added to the same route. A route is changed
-only by clicks: simply moving the cursor over rails does not add or preview a
-connection. Click the first point to close the route. Press `P` to close or
+order. The prospective shortest path is shown in blue on hover but is only
+committed by a click; disconnected rails cannot be added to the same route.
+Click the first point to close the route. Press `P` to close or
 reopen the route editor without changing a completed route; closing the editor
 also hides its blue route guide. After reopening, the first click on a rail
-starts its replacement. Right-click cancels the route being created, or press
-`X` at any time to completely clear the
+starts its replacement. Right-click cancels an unfinished route without
+destroying a completed one, or press `X` at any time to completely clear the
 custom route and return trains to the normal track route. Every route point
 between the endpoints is a stop: the train brakes to a complete halt there and
 waits briefly before continuing to the next point. This also ensures a stop at
@@ -70,3 +74,6 @@ open route makes trains shuttle between its endpoints; at an endpoint, a train
 reverses its movement direction while keeping its current visual orientation. A
 train also keeps its orientation when a route traverses a junction onto a rail
 in the opposite direction. A closed route loops continuously.
+
+`Esc` is safe to use: it cancels a pending rail placement first, then closes an
+active editor, and only saves the map and exits when no editor is active.
