@@ -579,7 +579,7 @@ struct RoutePoint {
 enum class TrackBuildTool { Straight, Curve };
 
 bool trackBuildMode = false;
-TrackBuildTool trackBuildTool = TrackBuildTool::Straight;
+TrackBuildTool trackBuildTool = TrackBuildTool::Curve;
 std::optional<glm::vec3> trackBuildStart;
 std::optional<float> trackBuildStartHeading;
 bool previousHPressed = false;
@@ -591,6 +591,7 @@ bool routeBuildMode = false;
 bool previousPPressed = false;
 bool previousXPressed = false;
 bool previousRouteLeftMousePressed = false;
+bool previousEscapePressed = false;
 bool customRouteClosed = false;
 bool customRouteChanged = false;
 std::vector<glm::vec3> customRoutePoints;
@@ -603,6 +604,7 @@ constexpr float maximumStraightJoinAngleRadians = glm::radians(5.0f);
 constexpr float trackJoinAngleToleranceRadians = glm::radians(3.0f);
 constexpr float maximumCurveTurnRadians = glm::radians(90.0f);
 constexpr float minimumCurveRadiusMeters = 20.0f;
+constexpr float trackHeadingAssistAngleRadians = glm::radians(10.0f);
 constexpr float trackGeometryToleranceMeters = 0.02f;
 constexpr float routeCloseSnapDistanceMeters = 1.25f;
 constexpr float routeJunctionToleranceMeters = 0.05f;
@@ -1480,6 +1482,16 @@ std::vector<TrackSegment> fitBiarcPieces(const glm::vec3& start, const glm::vec3
         pieces.push_back({transform, points[index], points[index + 1], heading, 0.0f, length, distanceFromStart});
         distanceFromStart += length;
     }
+    // The Hermite connector gives us tangent-continuous joins, but reject a
+    // sampled curve that would require a tighter bend than the rail can take.
+    for (size_t index = 1; index < pieces.size(); ++index) {
+        const float previousHeading = pieces[index - 1].startHeadingRadians;
+        const float heading = pieces[index].startHeadingRadians;
+        const float averageLength = (pieces[index - 1].length + pieces[index].length) * 0.5f;
+        if (averageLength <= 0.001f ||
+            absoluteAngleDifference(previousHeading, heading) / averageLength >
+                1.0f / minimumCurveRadiusMeters) return {};
+    }
     return pieces;
 }
 
@@ -1503,6 +1515,22 @@ std::vector<TrackSegment> makeTrackPieces(const glm::vec3& start, const glm::vec
             direct.back().startHeadingRadians + direct.back().curvatureRadiansPerMeter * direct.back().length,
             *endHeading + glm::pi<float>()) <= trackJoinAngleToleranceRadians)) return direct;
     return fitBiarcPieces(start, end, heading, *endHeading, assetScale, routeDistance);
+}
+
+// Starting from an existing rail should feel like extending that rail, rather
+// than require pixel-perfect mouse alignment.  Preserve an explicit endpoint
+// snap (it is a deliberate connection), otherwise project small sideways
+// movement onto the outgoing tangent.
+glm::vec3 assistedTrackTarget(const glm::vec3& start, std::optional<float> startHeading,
+                              const TrackConnection& snappedTarget) {
+    if (!startHeading || snappedTarget.isConnected) return snappedTarget.position;
+    const glm::vec3 offset = snappedTarget.position - start;
+    const float forward = glm::dot(offset, trackDirection(*startHeading));
+    const float sideways = std::abs(glm::dot(offset, trackLeftNormal(*startHeading)));
+    if (forward > 0.05f && sideways <= forward * std::tan(trackHeadingAssistAngleRadians)) {
+        return start + trackDirection(*startHeading) * forward;
+    }
+    return snappedTarget.position;
 }
 
 std::optional<glm::vec3> cursorGroundPosition(GLFWwindow* window, const glm::mat4& view,
@@ -2167,11 +2195,28 @@ int main() {
         bool showCursor = trackBuildMode || routeBuildMode;
         setCursorMode(window, showCursor);
 
-        // ========== ВЫХОД ПО ESC ==========
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            saveTrackMap();
-            glfwSetWindowShouldClose(window, true);
+        // Escape is edge-triggered.  It first gets the user out of an editing
+        // action, so an accidental key press never closes the whole simulator.
+        const bool escapePressed = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+        if (escapePressed && !previousEscapePressed) {
+            if (trackBuildStart) {
+                trackBuildStart.reset();
+                trackBuildStartHeading.reset();
+                std::cout << "Track placement cancelled" << std::endl;
+            } else if (trackBuildMode) {
+                trackBuildMode = false;
+                setCursorMode(window, false);
+                std::cout << "Track builder closed" << std::endl;
+            } else if (routeBuildMode) {
+                routeBuildMode = false;
+                setCursorMode(window, false);
+                std::cout << "Route builder closed" << std::endl;
+            } else {
+                saveTrackMap();
+                glfwSetWindowShouldClose(window, true);
+            }
         }
+        previousEscapePressed = escapePressed;
 
         // ========== РЕЖИМЫ РЕДАКТИРОВАНИЯ ==========
         
@@ -2182,7 +2227,7 @@ int main() {
                 routeBuildMode = false;
                 // Показываем курсор для строительства пути
                 setCursorMode(window, true);
-                std::cout << "Track builder: I - straight, J - curve, left click - select/build, right click - cancel" << std::endl;
+                std::cout << "Track builder: I/J - smooth rail, left click - select/build, right click - cancel" << std::endl;
             } else {
                 // Скрываем курсор, если не в режиме редактирования
                 setCursorMode(window, false);
@@ -2190,6 +2235,8 @@ int main() {
             }
             trackBuildStart.reset();
             trackBuildStartHeading.reset();
+            previousLeftMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+            previousRightMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
             firstMouse = true;
         }
         previousHPressed = hPressed;
@@ -2199,6 +2246,8 @@ int main() {
             routeBuildMode = !routeBuildMode;
             if (routeBuildMode) {
                 trackBuildMode = false;
+                trackBuildStart.reset();
+                trackBuildStartHeading.reset();
                 // Показываем курсор для создания маршрута
                 setCursorMode(window, true);
                 std::cout << "Route builder: left click on rails to trace them; click the first point to close; X clears the route" << std::endl;
@@ -2208,6 +2257,8 @@ int main() {
                 std::cout << "Route builder closed" << std::endl;
             }
             firstMouse = true;
+            previousRouteLeftMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+            previousRightMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
         }
         previousPPressed = pPressed;
 
@@ -2221,7 +2272,10 @@ int main() {
         if (trackBuildMode) {
             const bool iPressed = glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS;
             const bool jPressed = glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS;
-            if (iPressed && !previousIPressed) trackBuildTool = TrackBuildTool::Straight;
+            // Rails are always laid as smooth geometry.  I remains a friendly
+            // shortcut for users of older maps, but no longer produces a hard
+            // straight-only join.
+            if (iPressed && !previousIPressed) trackBuildTool = TrackBuildTool::Curve;
             if (jPressed && !previousJPressed) trackBuildTool = TrackBuildTool::Curve;
             previousIPressed = iPressed;
             previousJPressed = jPressed;
@@ -2271,18 +2325,28 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         std::vector<glm::vec3> previewPoints;
+        bool trackPreviewValid = false;
         std::vector<glm::vec3> routePreviewPoints;
         if (routeBuildMode) {
             routePreviewPoints = customRoutePoints;
             const auto cursorPosition = cursorGroundPosition(window, view, projection);
             const bool leftPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             const bool rightPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-            if (rightPressed && !previousRightMousePressed && !customRoutePoints.empty()) {
+            if (rightPressed && !previousRightMousePressed && !customRouteClosed && !customRoutePoints.empty()) {
                 clearCustomRoute();
             }
             if (cursorPosition) {
                 const auto snappedPoint = snapRoutePoint(*cursorPosition);
                 if (snappedPoint) {
+                    // Preview the actual shortest rail path before committing
+                    // it.  This makes disconnected branches obvious without
+                    // changing the route merely by moving the mouse.
+                    if (!customRouteClosed && customRouteLastTrackPoint) {
+                        std::vector<glm::vec3> hoveredPath = routePreviewPoints;
+                        if (appendTrackPath(hoveredPath, *customRouteLastTrackPoint, *snappedPoint)) {
+                            routePreviewPoints = std::move(hoveredPath);
+                        }
+                    }
                     if (leftPressed && !previousRouteLeftMousePressed) {
                         if (!customRouteClosed && customRouteFirstTrackPoint && customRouteLastTrackPoint &&
                             glm::length(snappedPoint->position - customRoutePoints.front()) < routeCloseSnapDistanceMeters) {
@@ -2334,6 +2398,9 @@ int main() {
                 }
             if (cursorPosition) {
                 const TrackConnection target = snapTrackConnection(*cursorPosition);
+                const glm::vec3 buildTarget = trackBuildStart
+                    ? assistedTrackTarget(*trackBuildStart, trackBuildStartHeading, target)
+                    : target.position;
                 if (leftPressed && !previousLeftMousePressed) {
                     if (!trackBuildStart) {
                         trackBuildStart = target.position;
@@ -2342,7 +2409,7 @@ int main() {
                         const float routeDistance = trackSegments.empty() ? 0.0f
                             : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
                         std::vector<TrackSegment> pieces;
-                        pieces = makeTrackPieces(*trackBuildStart, target.position, trackBuildStartHeading,
+                        pieces = makeTrackPieces(*trackBuildStart, buildTarget, trackBuildStartHeading,
                                                 trackBuildTool, target.heading, assetScale, routeDistance);
                         if (!pieces.empty()) {
                             const TrackSegment& lastPiece = pieces.back();
@@ -2357,11 +2424,18 @@ int main() {
                     const float routeDistance = trackSegments.empty() ? 0.0f
                         : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
                     const std::vector<TrackSegment> previewPieces =
-                        makeTrackPieces(*trackBuildStart, target.position, trackBuildStartHeading,
+                        makeTrackPieces(*trackBuildStart, buildTarget, trackBuildStartHeading,
                                         trackBuildTool, target.heading, assetScale, routeDistance);
+                    trackPreviewValid = !previewPieces.empty();
                     for (const TrackSegment& piece : previewPieces) {
                         if (previewPoints.empty()) previewPoints.push_back(piece.start + glm::vec3(0.0f, 0.03f, 0.0f));
                         previewPoints.push_back(piece.end + glm::vec3(0.0f, 0.03f, 0.0f));
+                    }
+                    // Keep an invalid proposal visible, in red, instead of
+                    // making the rail appear to disappear under the cursor.
+                    if (previewPoints.empty()) {
+                        previewPoints.push_back(*trackBuildStart + glm::vec3(0.0f, 0.03f, 0.0f));
+                        previewPoints.push_back(buildTarget + glm::vec3(0.0f, 0.03f, 0.0f));
                     }
                 }
             }
@@ -2409,7 +2483,11 @@ int main() {
             rail.draw(modelShader);
         }
 
-        drawTrackPreview(previewShader, previewPoints, view, projection, glm::vec3(0.1f, 1.0f, 0.15f));
+        if (!previewPoints.empty()) {
+            drawTrackPreview(previewShader, previewPoints, view, projection,
+                             trackPreviewValid ? glm::vec3(0.1f, 1.0f, 0.15f)
+                                               : glm::vec3(1.0f, 0.12f, 0.08f));
+        }
         if (!routePreviewPoints.empty()) {
             if (customRouteClosed) routePreviewPoints.push_back(routePreviewPoints.front());
             for (glm::vec3& point : routePreviewPoints) point.y += 0.12f;
