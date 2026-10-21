@@ -1901,6 +1901,44 @@ void applyCustomRouteToTrains() {
     customRouteChanged = false;
 }
 
+// Curves impose a lateral-acceleration limit. Curvature is stored on each
+// rail segment in radians per metre, so radius = 1 / |curvature| and
+// v = sqrt(a_lateral * radius). Look-ahead braking is applied separately.
+constexpr float comfortableLateralAccelerationMs2 = 0.65f;
+constexpr float fallbackTrackSpeedLimitMs = 35.0f;
+
+float trackCurveSpeedLimit(float curvature) {
+    if (std::abs(curvature) < 0.000001f) return fallbackTrackSpeedLimitMs;
+    const float radius = 1.0f / std::abs(curvature);
+    return std::clamp(std::sqrt(comfortableLateralAccelerationMs2 * radius), 3.0f,
+                      fallbackTrackSpeedLimitMs);
+}
+
+float trackSpeedLimitWithLookAhead(float routePosition, float brakeDeceleration,
+                                   float motionDirection, float trainMaxSpeed) {
+    float allowedSpeed = trainMaxSpeed;
+    for (const TrackSegment& segment : trackSegments) {
+        const float segmentStart = segment.distanceFromRouteStart;
+        const float segmentEnd = segmentStart + segment.length;
+        float distanceAhead = 0.0f;
+        if (motionDirection >= 0.0f) {
+            if (segmentEnd < routePosition - 0.001f) continue;
+            distanceAhead = std::max(0.0f, segmentStart - routePosition);
+        } else {
+            if (segmentStart > routePosition + 0.001f) continue;
+            distanceAhead = std::max(0.0f, routePosition - segmentEnd);
+        }
+        const float curveLimit = std::min(trainMaxSpeed,
+            trackCurveSpeedLimit(segment.curvatureRadiansPerMeter));
+        // v_current^2 <= v_curve^2 + 2*a*distance. This begins braking
+        // before the curve instead of clamping speed only after entering it.
+        const float safeApproachSpeed = std::sqrt(curveLimit * curveLimit +
+            2.0f * brakeDeceleration * distanceAhead);
+        allowedSpeed = std::min(allowedSpeed, safeApproachSpeed);
+    }
+    return std::clamp(allowedSpeed, 0.0f, trainMaxSpeed);
+}
+
 void updateTrainMotion(Model& train, float dt) {
     if (train.routeDistance <= 0.0f || dt <= 0.0f) return;
 
@@ -1908,6 +1946,13 @@ void updateTrainMotion(Model& train, float dt) {
     const float maxSpeed = train.maxSpeedKmh > 0.0f ? train.maxSpeedKmh / 3.6f : fallbackMaxSpeed;
     const float acceleration = train.accelerationMs2 > 0.0f ? train.accelerationMs2 : 0.5f;
     const float brakeDeceleration = train.brakeDecelerationMs2 > 0.0f ? train.brakeDecelerationMs2 : acceleration;
+    // Track segments carry exact curvature; do not apply their global distances
+    // to a custom route that uses its own local distance coordinate.
+    const bool useTrackCurveLimits = customRoutePoints.size() < 2;
+    const float curveLimitedSpeed = useTrackCurveLimits
+        ? trackSpeedLimitWithLookAhead(train.routePosition, brakeDeceleration,
+                                       train.motionDirection, maxSpeed)
+        : maxSpeed;
     const bool isClosedRoute = customRouteClosed && customRoutePoints.size() >= 3;
     if (train.routeStopTimer > 0.0f) {
         train.previousRoutePosition = train.routePosition;
@@ -1954,9 +1999,12 @@ void updateTrainMotion(Model& train, float dt) {
         } else {
             train.motionDirection *= -1.0f;
         }
+    } else if (useTrackCurveLimits && std::abs(train.routeVelocity) > curveLimitedSpeed + 0.05f) {
+        // Brake early enough to enter the upcoming curve at its safe speed.
+        signedAcceleration = -brakeDeceleration * train.motionDirection;
     } else if (stoppingDistance >= distanceToTarget) {
         signedAcceleration = -brakeDeceleration * train.motionDirection;
-    } else if (std::abs(train.routeVelocity) < maxSpeed) {
+    } else if (std::abs(train.routeVelocity) < curveLimitedSpeed) {
         signedAcceleration = acceleration * train.motionDirection;
     }
 
@@ -2329,7 +2377,7 @@ int main() {
                 routeBuildMode = false;
                 // Показываем курсор для строительства пути
                 setCursorMode(window, true);
-                std::cout << "Track builder: I/J - smooth rail, left click - select/build, right click - cancel" << std::endl;
+                std::cout << "Track builder: left click adds the next point; move the mouse to preview the smooth connector; right click cancels the current chain; Esc exits" << std::endl;
             } else {
                 // Скрываем курсор, если не в режиме редактирования
                 setCursorMode(window, false);
@@ -2522,7 +2570,25 @@ int main() {
                             trackBuildStart = lastPiece.end;
                             trackBuildStartHeading = lastPiece.startHeadingRadians +
                                 lastPiece.curvatureRadiansPerMeter * lastPiece.length;
+                            float minimumRadius = std::numeric_limits<float>::infinity();
+                            float maximumCurveSpeedKmh = std::numeric_limits<float>::infinity();
+                            for (const TrackSegment& piece : pieces) {
+                                if (std::abs(piece.curvatureRadiansPerMeter) < 0.000001f) continue;
+                                const float radius = 1.0f / std::abs(piece.curvatureRadiansPerMeter);
+                                minimumRadius = std::min(minimumRadius, radius);
+                                maximumCurveSpeedKmh = std::min(maximumCurveSpeedKmh,
+                                    trackCurveSpeedLimit(piece.curvatureRadiansPerMeter) * 3.6f);
+                            }
                             trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
+                            if (std::isfinite(minimumRadius)) {
+                                std::cout << "Built curved section: " << totalTrackLength(pieces)
+                                          << " m, minimum radius " << minimumRadius
+                                          << " m, recommended curve speed at most "
+                                          << maximumCurveSpeedKmh << " km/h" << std::endl;
+                            } else {
+                                std::cout << "Built straight section: "
+                                          << totalTrackLength(pieces) << " m" << std::endl;
+                            }
                         }
                     }
                 }
