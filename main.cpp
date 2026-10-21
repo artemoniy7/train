@@ -2377,7 +2377,7 @@ int main() {
                 routeBuildMode = false;
                 // Показываем курсор для строительства пути
                 setCursorMode(window, true);
-                std::cout << "Track builder: I/J - smooth rail, left click - select/build, right click - cancel" << std::endl;
+                std::cout << "Track builder: left click adds the next point; move the mouse to preview the smooth connector; right click cancels the current chain; Esc exits" << std::endl;
             } else {
                 // Скрываем курсор, если не в режиме редактирования
                 setCursorMode(window, false);
@@ -2570,7 +2570,25 @@ int main() {
                             trackBuildStart = lastPiece.end;
                             trackBuildStartHeading = lastPiece.startHeadingRadians +
                                 lastPiece.curvatureRadiansPerMeter * lastPiece.length;
+                            float minimumRadius = std::numeric_limits<float>::infinity();
+                            float maximumCurveSpeedKmh = std::numeric_limits<float>::infinity();
+                            for (const TrackSegment& piece : pieces) {
+                                if (std::abs(piece.curvatureRadiansPerMeter) < 0.000001f) continue;
+                                const float radius = 1.0f / std::abs(piece.curvatureRadiansPerMeter);
+                                minimumRadius = std::min(minimumRadius, radius);
+                                maximumCurveSpeedKmh = std::min(maximumCurveSpeedKmh,
+                                    trackCurveSpeedLimit(piece.curvatureRadiansPerMeter) * 3.6f);
+                            }
                             trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
+                            if (std::isfinite(minimumRadius)) {
+                                std::cout << "Built curved section: " << totalTrackLength(pieces)
+                                          << " m, minimum radius " << minimumRadius
+                                          << " m, recommended curve speed at most "
+                                          << maximumCurveSpeedKmh << " km/h" << std::endl;
+                            } else {
+                                std::cout << "Built straight section: "
+                                          << totalTrackLength(pieces) << " m" << std::endl;
+                            }
                         }
                     }
                 }
