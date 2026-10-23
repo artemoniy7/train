@@ -2555,11 +2555,15 @@ int main() {
                         std::cout << "Start selected. Click an endpoint; green preview = valid, red = invalid." << std::endl;
                     } else {
                         const glm::vec3 start = *trackBuildStart;
+                        // Split the destination rail before connecting so the branch
+                        // shares a graph node, not just a visually overlapping point.
+                        splitTrackAtConnection(target);
+                        const TrackConnection snappedTarget = snapTrackConnection(target.position);
                         const float routeDistance = trackSegments.empty() ? 0.0f
                             : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
                         auto pieces = makeTrackPiecesToConnection(
-                            start, target.position, trackBuildStartHeading, trackBuildTool,
-                            target, assetScale, routeDistance);
+                            start, snappedTarget.position, trackBuildStartHeading, trackBuildTool,
+                            snappedTarget, assetScale, routeDistance);
                         if (!pieces.empty()) {
                             trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
                             refreshTrackRouteDistances();
@@ -2572,8 +2576,8 @@ int main() {
                         // Keep the first endpoint selected after a failed attempt,
                         // but start a fresh piece after a successful placement.
                         if (!pieces.empty()) {
-                            trackBuildStart = target.position;
-                            trackBuildStartHeading = target.heading;
+                            trackBuildStart = snappedTarget.position;
+                            trackBuildStartHeading = snappedTarget.heading;
                         }
                     }
                 }
