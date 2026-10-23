@@ -579,7 +579,6 @@ struct RoutePoint {
 enum class TrackBuildTool { Straight, Curve };
 
 bool trackBuildMode = false;
-std::vector<glm::vec3> trackBuildAnchors;
 TrackBuildTool trackBuildTool = TrackBuildTool::Curve;
 std::optional<glm::vec3> trackBuildStart;
 std::optional<float> trackBuildStartHeading;
@@ -1624,17 +1623,6 @@ glm::vec3 assistedTrackTarget(const glm::vec3& start, std::optional<float> start
 // than require pixel-perfect mouse alignment.  Preserve an explicit endpoint
 // snap (it is a deliberate connection), otherwise project small sideways
 // movement onto the outgoing tangent.
-glm::vec3 assistedTrackTarget(const glm::vec3& start, std::optional<float> startHeading,
-                              const TrackConnection& snappedTarget) {
-    if (!startHeading || snappedTarget.isConnected) return snappedTarget.position;
-    const glm::vec3 offset = snappedTarget.position - start;
-    const float forward = glm::dot(offset, trackDirection(*startHeading));
-    const float sideways = std::abs(glm::dot(offset, trackLeftNormal(*startHeading)));
-    if (forward > 0.05f && sideways <= forward * std::tan(trackHeadingAssistAngleRadians)) {
-        return start + trackDirection(*startHeading) * forward;
-    }
-    return snappedTarget.position;
-}
 
 std::optional<glm::vec3> cursorGroundPosition(GLFWwindow* window, const glm::mat4& view,
                                               const glm::mat4& projection) {
@@ -2353,7 +2341,6 @@ int main() {
             if (trackBuildStart) {
                 trackBuildStart.reset();
                 trackBuildStartHeading.reset();
-                trackBuildAnchors.clear();
                 std::cout << "Track placement cancelled" << std::endl;
             } else if (trackBuildMode) {
                 trackBuildMode = false;
@@ -2379,7 +2366,7 @@ int main() {
                 routeBuildMode = false;
                 // Показываем курсор для строительства пути
                 setCursorMode(window, true);
-                std::cout << "Track builder: click 3+ anchor points to create smooth connectors; I=straight, J=curve; right click finishes the chain; Esc exits" << std::endl;
+                std::cout << "Track builder: click start, then endpoint; rails snap to existing track. I=straight, J=curve; right-click cancels the pending piece; Esc exits" << std::endl;
             } else {
                 // Скрываем курсор, если не в режиме редактирования
                 setCursorMode(window, false);
@@ -2387,7 +2374,6 @@ int main() {
             }
             trackBuildStart.reset();
             trackBuildStartHeading.reset();
-            trackBuildAnchors.clear();
             previousLeftMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             previousRightMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
             firstMouse = true;
@@ -2548,109 +2534,69 @@ int main() {
             const auto cursorPosition = cursorGroundPosition(window, view, projection);
             const bool leftPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             const bool rightPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+
+            // Right-click cancels only the unfinished piece; already placed rail stays.
             if (rightPressed && !previousRightMousePressed) {
-                // Right click finishes the pending end using its last known tangent,
-                // or cancels the chain if no segment can be completed.
-                if (trackBuildAnchors.size() >= 2) {
-                    const glm::vec3 a = trackBuildAnchors[trackBuildAnchors.size() - 2];
-                    const glm::vec3 b = trackBuildAnchors.back();
-                    const glm::vec3 delta = b - a;
-                    const float heading = std::atan2(delta.x, delta.z);
-                    const float routeDistance = trackSegments.empty() ? 0.0f
-                        : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                    TrackConnection endConnection;
-                    endConnection.position = b;
-                    auto pieces = makeTrackPieces(a, b, heading, trackBuildTool,
-                                                  heading, assetScale, routeDistance);
-                    trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
-                    if (!pieces.empty()) saveTrackMap();
-                }
-                trackBuildAnchors.clear();
                 trackBuildStart.reset();
                 trackBuildStartHeading.reset();
+                previewPoints.clear();
+                std::cout << "Pending rail cancelled" << std::endl;
             }
+
             if (cursorPosition) {
                 const TrackConnection target = snapTrackConnection(*cursorPosition);
-                const glm::vec3 buildTarget = trackBuildAnchors.empty()
-                    ? target.position : target.position;
                 if (leftPressed && !previousLeftMousePressed) {
-                    if (trackBuildAnchors.empty()) {
+                    if (!trackBuildStart) {
+                        // First click defines the start. Clicking an existing rail
+                        // splits it so the new piece is attached to the actual graph.
                         splitTrackAtConnection(target);
-                        trackBuildAnchors.push_back(target.position);
                         trackBuildStart = target.position;
                         trackBuildStartHeading = target.heading;
+                        std::cout << "Start selected. Click an endpoint; green preview = valid, red = invalid." << std::endl;
                     } else {
-                        const glm::vec3 lastAnchor = trackBuildAnchors.back();
-                        if (glm::length(target.position - lastAnchor) < 0.5f) {
-                            std::cout << "Point is too close to the previous point" << std::endl;
+                        const glm::vec3 start = *trackBuildStart;
+                        const float routeDistance = trackSegments.empty() ? 0.0f
+                            : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
+                        auto pieces = makeTrackPiecesToConnection(
+                            start, target.position, trackBuildStartHeading, trackBuildTool,
+                            target, assetScale, routeDistance);
+                        if (!pieces.empty()) {
+                            trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
+                            refreshTrackRouteDistances();
+                            saveTrackMap();
+                            std::cout << "Placed " << (trackBuildTool == TrackBuildTool::Curve ? "curve" : "straight")
+                                      << " rail (" << totalTrackLength(pieces) << " m)" << std::endl;
                         } else {
-                            trackBuildAnchors.push_back(target.position);
+                            std::cout << "Cannot place rail: endpoints are too close, the curve is too tight, or the straight does not align. Choose another endpoint." << std::endl;
+                        }
+                        // Keep the first endpoint selected after a failed attempt,
+                        // but start a fresh piece after a successful placement.
+                        if (!pieces.empty()) {
                             trackBuildStart = target.position;
                             trackBuildStartHeading = target.heading;
-                            // Wait for the next anchor to determine the outgoing
-                            // tangent. This makes the middle point define a smooth
-                            // curve instead of committing a two-point arc too early.
-                            if (trackBuildAnchors.size() >= 3) {
-                                const size_t n = trackBuildAnchors.size();
-                                const glm::vec3 a = trackBuildAnchors[n - 3];
-                                const glm::vec3 b = trackBuildAnchors[n - 2];
-                                const glm::vec3 c = trackBuildAnchors[n - 1];
-                                const glm::vec3 incoming = b - a;
-                                const glm::vec3 outgoing = c - b;
-                                const float startHeading = std::atan2(incoming.x, incoming.z);
-                                const float endHeading = std::atan2(outgoing.x, outgoing.z);
-                                const float routeDistance = trackSegments.empty() ? 0.0f
-                                    : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                                auto pieces = makeTrackPieces(a, b, startHeading, trackBuildTool,
-                                                              endHeading, assetScale, routeDistance);
-                                if (!pieces.empty()) {
-                                    trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
-                                    float minRadius = std::numeric_limits<float>::infinity();
-                                    for (const auto& piece : pieces) {
-                                        if (std::abs(piece.curvatureRadiansPerMeter) > 0.000001f)
-                                            minRadius = std::min(minRadius, 1.0f / std::abs(piece.curvatureRadiansPerMeter));
-                                    }
-                                    std::cout << "Placed " << (trackBuildTool == TrackBuildTool::Curve ? "smooth" : "straight")
-                                              << " section, " << totalTrackLength(pieces) << " m";
-                                    if (std::isfinite(minRadius)) std::cout << ", minimum radius " << minRadius << " m";
-                                    std::cout << std::endl;
-                                } else {
-                                    std::cout << "Cannot create a valid connector for these points" << std::endl;
-                                }
-                                // Retain the last two anchors so each new point
-                                // smoothly determines the previous segment.
-                                trackBuildAnchors.erase(trackBuildAnchors.begin(),
-                                                        trackBuildAnchors.end() - 2);
-                            }
                         }
                     }
                 }
-                if (!trackBuildAnchors.empty()) {
-                    previewPoints.clear();
-                    const glm::vec3 anchor = trackBuildAnchors.back();
-                    const glm::vec3 delta = buildTarget - anchor;
-                    const float heading = std::atan2(delta.x, delta.z);
+
+                if (trackBuildStart) {
                     const float routeDistance = trackSegments.empty() ? 0.0f
                         : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                    std::vector<TrackSegment> previewPieces;
-                    if (trackBuildAnchors.size() >= 2) {
-                        const glm::vec3 prev = trackBuildAnchors[trackBuildAnchors.size() - 2];
-                        const glm::vec3 incoming = anchor - prev;
-                        previewPieces = makeTrackPieces(prev, anchor, std::atan2(incoming.x, incoming.z),
-                            trackBuildTool, heading, assetScale, routeDistance);
-                    } else {
-                        previewPieces = makeTrackPieces(anchor, buildTarget, heading, trackBuildTool,
-                            heading, assetScale, routeDistance);
-                    }
+                    const auto previewPieces = makeTrackPiecesToConnection(
+                        *trackBuildStart, target.position, trackBuildStartHeading,
+                        trackBuildTool, target, assetScale, routeDistance);
                     trackPreviewValid = !previewPieces.empty();
-                    for (const TrackSegment& piece : previewPieces) {
-                        if (previewPoints.empty()) previewPoints.push_back(piece.start + glm::vec3(0.0f, 0.03f, 0.0f));
-                        previewPoints.push_back(piece.end + glm::vec3(0.0f, 0.03f, 0.0f));
+                    previewPoints.clear();
+                    if (!previewPieces.empty()) {
+                        previewPoints.push_back(previewPieces.front().start + glm::vec3(0.0f, 0.06f, 0.0f));
+                        for (const TrackSegment& piece : previewPieces)
+                            previewPoints.push_back(piece.end + glm::vec3(0.06f, 0.0f, 0.06f));
+                    } else {
+                        previewPoints.push_back(*trackBuildStart + glm::vec3(0.0f, 0.06f, 0.0f));
+                        previewPoints.push_back(target.position + glm::vec3(0.0f, 0.06f, 0.0f));
                     }
-                    if (previewPoints.empty()) {
-                        previewPoints.push_back(anchor + glm::vec3(0.0f, 0.03f, 0.0f));
-                        previewPoints.push_back(buildTarget + glm::vec3(0.0f, 0.03f, 0.0f));
-                    }
+                } else {
+                    previewPoints.clear();
+                    trackPreviewValid = false;
                 }
             }
             previousLeftMousePressed = leftPressed;
