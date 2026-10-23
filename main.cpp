@@ -582,6 +582,7 @@ bool trackBuildMode = false;
 TrackBuildTool trackBuildTool = TrackBuildTool::Curve;
 std::optional<glm::vec3> trackBuildStart;
 std::optional<float> trackBuildStartHeading;
+std::optional<glm::vec3> trackCurveControl;
 bool previousHPressed = false;
 bool previousIPressed = false;
 bool previousJPressed = false;
@@ -1578,6 +1579,39 @@ float totalTrackLength(const std::vector<TrackSegment>& pieces) {
     return length;
 }
 
+
+std::vector<TrackSegment> makeControlledCurve(const glm::vec3& start, const glm::vec3& control,
+    const glm::vec3& end, std::optional<float> startHeading, std::optional<float> endHeading,
+    float assetScale, float routeDistance) {
+    const glm::vec2 incoming(control.x-start.x, control.z-start.z), outgoing(end.x-control.x, end.z-control.z);
+    if (glm::length(incoming)<0.05f || glm::length(outgoing)<0.05f) return {};
+    const float inHeading=std::atan2(incoming.x,incoming.y), outHeading=std::atan2(outgoing.x,outgoing.y);
+    float controlHeading=inHeading+0.5f*std::remainder(outHeading-inHeading,2.0f*glm::pi<float>());
+    if (startHeading && absoluteAngleDifference(*startHeading,inHeading)<glm::radians(35.0f)) controlHeading=inHeading;
+    auto first=fitBiarcPieces(start,control,startHeading.value_or(inHeading),controlHeading-glm::pi<float>(),assetScale,routeDistance);
+    if(first.empty()) return {};
+    auto second=fitBiarcPieces(control,end,controlHeading,endHeading.value_or(outHeading+glm::pi<float>()),
+                               assetScale,routeDistance+totalTrackLength(first));
+    if(second.empty()) return {};
+    first.insert(first.end(),second.begin(),second.end()); return first;
+}
+
+void logTrackGraphDiagnostics() {
+    size_t endpoints=0,isolated=0,highDegree=0; constexpr float tolerance=0.08f;
+    for(size_t i=0;i<trackSegments.size();++i) for(const glm::vec3& p:{trackSegments[i].start,trackSegments[i].end}) {
+        ++endpoints; size_t matches=0;
+        for(size_t j=0;j<trackSegments.size();++j) if(i!=j) {
+            const auto& b=trackSegments[j];
+            if(glm::length(p-b.start)<=tolerance || glm::length(p-b.end)<=tolerance) ++matches;
+        }
+        if(matches==0) ++isolated; if(matches>3) ++highDegree;
+    }
+    const float length=trackSegments.empty()?0.0f:trackSegments.back().distanceFromRouteStart+trackSegments.back().length;
+    std::cout<<"[track-debug] segments="<<trackSegments.size()<<", length="<<length
+             <<" m, endpoints="<<endpoints<<", unconnected-endpoints="<<isolated
+             <<", high-degree-endpoints="<<highDegree<<std::endl;
+}
+
 // A click in the interior of a rail has two valid travel directions.  Try both
 // tangents and keep the smoothest feasible connector.  This is important when
 // the cursor approaches the far side of a rail: a branch should merge with the
@@ -2366,7 +2400,9 @@ int main() {
                 routeBuildMode = false;
                 // Показываем курсор для строительства пути
                 setCursorMode(window, true);
-                std::cout << "Track builder: click start, then endpoint; rails snap to existing track. I=straight, J=curve; right-click cancels the pending piece; Esc exits" << std::endl;
+                std::cout << "Track builder [console debug]: left-click start; CURVE=control then endpoint; STRAIGHT=endpoint; click rails to snap/split; I=straight, J=curve; right-click cancels; Esc exits." << std::endl;
+                std::cout << "[track] snap tolerance=" << trackSnapDistanceMeters << " m; minimum radius=" << minimumCurveRadiusMeters << " m" << std::endl;
+                logTrackGraphDiagnostics();
             } else {
                 // Скрываем курсор, если не в режиме редактирования
                 setCursorMode(window, false);
@@ -2374,6 +2410,7 @@ int main() {
             }
             trackBuildStart.reset();
             trackBuildStartHeading.reset();
+            trackCurveControl.reset();
             previousLeftMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             previousRightMousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
             firstMouse = true;
@@ -2387,6 +2424,7 @@ int main() {
                 trackBuildMode = false;
                 trackBuildStart.reset();
                 trackBuildStartHeading.reset();
+                trackCurveControl.reset();
                 // Показываем курсор для создания маршрута
                 setCursorMode(window, true);
                 std::cout << "Route builder: left click on rails to trace them; click the first point to close; X clears the route" << std::endl;
@@ -2413,11 +2451,13 @@ int main() {
             const bool jPressed = glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS;
             if (iPressed && !previousIPressed) {
                 trackBuildTool = TrackBuildTool::Straight;
-                std::cout << "Track tool selected: STRAIGHT (I)" << std::endl;
+                trackCurveControl.reset();
+                std::cout << "[track] tool=STRAIGHT (I)" << std::endl;
             }
             if (jPressed && !previousJPressed) {
                 trackBuildTool = TrackBuildTool::Curve;
-                std::cout << "Track tool selected: CURVE (J)" << std::endl;
+                trackCurveControl.reset();
+                std::cout << "[track] tool=CURVE (J); click start, control point, endpoint" << std::endl;
             }
             previousIPressed = iPressed;
             previousJPressed = jPressed;
@@ -2539,69 +2579,63 @@ int main() {
             if (rightPressed && !previousRightMousePressed) {
                 trackBuildStart.reset();
                 trackBuildStartHeading.reset();
+                trackCurveControl.reset();
                 previewPoints.clear();
-                std::cout << "Pending rail cancelled" << std::endl;
+                std::cout << "[track] pending construction cancelled" << std::endl;
             }
 
             if (cursorPosition) {
-                const TrackConnection target = snapTrackConnection(*cursorPosition);
-                if (leftPressed && !previousLeftMousePressed) {
-                    if (!trackBuildStart) {
-                        // First click defines the start. Clicking an existing rail
-                        // splits it so the new piece is attached to the actual graph.
+                const TrackConnection target=snapTrackConnection(*cursorPosition);
+                if(leftPressed && !previousLeftMousePressed) {
+                    if(!trackBuildStart) {
                         splitTrackAtConnection(target);
-                        trackBuildStart = target.position;
-                        trackBuildStartHeading = target.heading;
-                        std::cout << "Start selected. Click an endpoint; green preview = valid, red = invalid." << std::endl;
+                        const TrackConnection first=snapTrackConnection(target.position);
+                        trackBuildStart=first.position; trackBuildStartHeading=first.heading; trackCurveControl.reset();
+                        std::cout<<"[track] start=("<<first.position.x<<", "<<first.position.y<<", "<<first.position.z<<")";
+                        if(first.heading) std::cout<<" heading="<<*first.heading<<" rad";
+                        std::cout<<(trackBuildTool==TrackBuildTool::Curve?"; click control point, then endpoint.":"; click endpoint.")<<std::endl;
+                    } else if(trackBuildTool==TrackBuildTool::Curve && !trackCurveControl) {
+                        if(glm::length(glm::vec2(target.position.x-trackBuildStart->x,target.position.z-trackBuildStart->z))<0.5f)
+                            std::cout<<"[track] control point too close to start; choose at least 0.5 m away."<<std::endl;
+                        else {
+                            trackCurveControl=target.position;
+                            std::cout<<"[track] control=("<<target.position.x<<", "<<target.position.y<<", "<<target.position.z<<"); click endpoint."<<std::endl;
+                        }
                     } else {
-                        const glm::vec3 start = *trackBuildStart;
-                        // Split the destination rail before connecting so the branch
-                        // shares a graph node, not just a visually overlapping point.
+                        const glm::vec3 startPoint=*trackBuildStart;
                         splitTrackAtConnection(target);
-                        const TrackConnection snappedTarget = snapTrackConnection(target.position);
-                        const float routeDistance = trackSegments.empty() ? 0.0f
-                            : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                        auto pieces = makeTrackPiecesToConnection(
-                            start, snappedTarget.position, trackBuildStartHeading, trackBuildTool,
-                            snappedTarget, assetScale, routeDistance);
-                        if (!pieces.empty()) {
-                            trackSegments.insert(trackSegments.end(), pieces.begin(), pieces.end());
-                            refreshTrackRouteDistances();
-                            saveTrackMap();
-                            std::cout << "Placed " << (trackBuildTool == TrackBuildTool::Curve ? "curve" : "straight")
-                                      << " rail (" << totalTrackLength(pieces) << " m)" << std::endl;
-                        } else {
-                            std::cout << "Cannot place rail: endpoints are too close, the curve is too tight, or the straight does not align. Choose another endpoint." << std::endl;
-                        }
-                        // Keep the first endpoint selected after a failed attempt,
-                        // but start a fresh piece after a successful placement.
-                        if (!pieces.empty()) {
-                            trackBuildStart = snappedTarget.position;
-                            trackBuildStartHeading = snappedTarget.heading;
-                        }
+                        const TrackConnection finish=snapTrackConnection(target.position);
+                        const float distance=trackSegments.empty()?0.0f:trackSegments.back().distanceFromRouteStart+trackSegments.back().length;
+                        std::vector<TrackSegment> pieces;
+                        if(trackBuildTool==TrackBuildTool::Curve)
+                            pieces=makeControlledCurve(startPoint,*trackCurveControl,finish.position,trackBuildStartHeading,finish.heading,assetScale,distance);
+                        else pieces=makeTrackPiecesToConnection(startPoint,finish.position,trackBuildStartHeading,trackBuildTool,finish,assetScale,distance);
+                        if(!pieces.empty()) {
+                            trackSegments.insert(trackSegments.end(),pieces.begin(),pieces.end()); refreshTrackRouteDistances();
+                            const bool saved=saveTrackMap();
+                            std::cout<<"[track] placed "<<(trackBuildTool==TrackBuildTool::Curve?"curve":"straight")
+                                     <<"; pieces="<<pieces.size()<<"; length="<<totalTrackLength(pieces)<<" m; save="<<(saved?"ok":"FAILED")<<std::endl;
+                            logTrackGraphDiagnostics(); trackBuildStart=finish.position; trackBuildStartHeading=finish.heading; trackCurveControl.reset();
+                        } else std::cout<<"[track] rejected: too short, radius below "<<minimumCurveRadiusMeters
+                                       <<" m, or incompatible endpoint tangents. Adjust control point/endpoint; no rail added."<<std::endl;
                     }
                 }
-
-                if (trackBuildStart) {
-                    const float routeDistance = trackSegments.empty() ? 0.0f
-                        : trackSegments.back().distanceFromRouteStart + trackSegments.back().length;
-                    const auto previewPieces = makeTrackPiecesToConnection(
-                        *trackBuildStart, target.position, trackBuildStartHeading,
-                        trackBuildTool, target, assetScale, routeDistance);
-                    trackPreviewValid = !previewPieces.empty();
-                    previewPoints.clear();
-                    if (!previewPieces.empty()) {
-                        previewPoints.push_back(previewPieces.front().start + glm::vec3(0.0f, 0.06f, 0.0f));
-                        for (const TrackSegment& piece : previewPieces)
-                            previewPoints.push_back(piece.end + glm::vec3(0.06f, 0.0f, 0.06f));
+                if(trackBuildStart) {
+                    const float distance=trackSegments.empty()?0.0f:trackSegments.back().distanceFromRouteStart+trackSegments.back().length;
+                    std::vector<TrackSegment> preview;
+                    if(trackBuildTool==TrackBuildTool::Curve) {
+                        if(trackCurveControl) preview=makeControlledCurve(*trackBuildStart,*trackCurveControl,target.position,trackBuildStartHeading,target.heading,assetScale,distance);
+                    } else preview=makeTrackPiecesToConnection(*trackBuildStart,target.position,trackBuildStartHeading,trackBuildTool,target,assetScale,distance);
+                    trackPreviewValid=!preview.empty(); previewPoints.clear();
+                    if(!preview.empty()) {
+                        previewPoints.push_back(preview.front().start+glm::vec3(0.0f,0.06f,0.0f));
+                        for(const auto& piece:preview) previewPoints.push_back(piece.end+glm::vec3(0.06f,0.0f,0.06f));
                     } else {
-                        previewPoints.push_back(*trackBuildStart + glm::vec3(0.0f, 0.06f, 0.0f));
-                        previewPoints.push_back(target.position + glm::vec3(0.0f, 0.06f, 0.0f));
+                        previewPoints.push_back(*trackBuildStart+glm::vec3(0.0f,0.06f,0.0f));
+                        if(trackCurveControl) previewPoints.push_back(*trackCurveControl+glm::vec3(0.0f,0.06f,0.0f));
+                        previewPoints.push_back(target.position+glm::vec3(0.0f,0.06f,0.0f));
                     }
-                } else {
-                    previewPoints.clear();
-                    trackPreviewValid = false;
-                }
+                } else { previewPoints.clear(); trackPreviewValid=false; }
             }
             previousLeftMousePressed = leftPressed;
             previousRightMousePressed = rightPressed;
